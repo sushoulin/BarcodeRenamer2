@@ -19,7 +19,7 @@
 
 **一维条形码**（专注识别）：
 - CODE_128
-- CODE_39 / CODE_39_EXTENDED
+- CODE_39
 - CODE_93
 - EAN_13
 - EAN_8
