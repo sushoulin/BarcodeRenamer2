@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 
 namespace BarcodeRenamer2
@@ -10,6 +11,7 @@ namespace BarcodeRenamer2
     {
         private readonly AppConfig config;
         private readonly BarcodeRecognitionService recognitionService;
+        private readonly HashSet<string> processedFiles;
 
         public event EventHandler<FileItem>? FileProcessed;
         public event EventHandler<ScanStatistics>? StatisticsUpdated;
@@ -18,6 +20,31 @@ namespace BarcodeRenamer2
         {
             this.config = config;
             this.recognitionService = new BarcodeRecognitionService();
+            this.processedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// 清除已处理文件记录
+        /// </summary>
+        public void ClearProcessedFiles()
+        {
+            processedFiles.Clear();
+        }
+
+        /// <summary>
+        /// 标记文件为已处理
+        /// </summary>
+        public void MarkFileAsProcessed(string filePath)
+        {
+            processedFiles.Add(filePath);
+        }
+
+        /// <summary>
+        /// 检查文件是否已处理
+        /// </summary>
+        public bool IsFileProcessed(string filePath)
+        {
+            return processedFiles.Contains(filePath);
         }
 
         /// <summary>
@@ -41,7 +68,17 @@ namespace BarcodeRenamer2
                     {
                         try
                         {
+                            // 跳过已处理的文件
+                            if (IsFileProcessed(filePath))
+                            {
+                                continue;
+                            }
+
                             var fileItem = ProcessFile(filePath);
+
+                            // 标记文件为已处理（无论成功或失败）
+                            MarkFileAsProcessed(filePath);
+
                             stats.TotalCount++;
 
                             if (fileItem.Status == RecognitionStatus.Success)
