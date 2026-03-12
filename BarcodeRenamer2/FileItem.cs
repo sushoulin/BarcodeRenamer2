@@ -49,6 +49,16 @@ namespace BarcodeRenamer2
         public bool IsManualReview { get; set; } = false;
 
         /// <summary>
+        /// 原始文件路径（用于人工审核时显示原图）
+        /// </summary>
+        public string? OriginalFilePath { get; set; }
+
+        /// <summary>
+        /// 输出文件路径（移动后的新路径）
+        /// </summary>
+        public string? OutputFilePath { get; set; }
+
+        /// <summary>
         /// 获取格式化的文件大小
         /// </summary>
         public string FormattedSize

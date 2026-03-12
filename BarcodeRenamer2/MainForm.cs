@@ -236,13 +236,14 @@ namespace BarcodeRenamer2
                 Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right
             };
 
-            lstFiles.Columns.Add("文件名", 200);
-            lstFiles.Columns.Add("文件路径", 250);
-            lstFiles.Columns.Add("大小", 80);
-            lstFiles.Columns.Add("类型", 60);
+            lstFiles.Columns.Add("文件名", 180);
+            lstFiles.Columns.Add("文件路径", 200);
+            lstFiles.Columns.Add("输出路径", 200);
+            lstFiles.Columns.Add("大小", 70);
+            lstFiles.Columns.Add("类型", 50);
             lstFiles.Columns.Add("状态", 80);
-            lstFiles.Columns.Add("条形码", 150);
-            lstFiles.Columns.Add("识别时间", 140);
+            lstFiles.Columns.Add("条形码", 130);
+            lstFiles.Columns.Add("识别时间", 130);
 
             btnManualReview = new Button
             {
@@ -250,6 +251,40 @@ namespace BarcodeRenamer2
                 Location = new Point(10, 355),
                 Size = new Size(100, 30),
                 Anchor = AnchorStyles.Bottom | AnchorStyles.Left
+            };
+
+            // 添加双击预览事件
+            lstFiles.DoubleClick += (s, e) =>
+            {
+                if (lstFiles.SelectedItems.Count > 0)
+                {
+                    var item = lstFiles.SelectedItems[0];
+                    var fileItem = item.Tag as FileItem;
+                    if (fileItem != null)
+                    {
+                        // 优先打开输出路径，其次打开原始路径
+                        string filePath = fileItem.OutputFilePath ?? fileItem.FilePath;
+                        if (System.IO.File.Exists(filePath))
+                        {
+                            try
+                            {
+                                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                                {
+                                    FileName = filePath,
+                                    UseShellExecute = true
+                                });
+                            }
+                            catch (Exception ex)
+                            {
+                                MessageBox.Show($"无法打开文件: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                            }
+                        }
+                        else
+                        {
+                            MessageBox.Show("文件不存在", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        }
+                    }
+                }
             };
 
             grpFileList.Controls.AddRange(new Control[] {
@@ -341,23 +376,32 @@ namespace BarcodeRenamer2
                 {
                     var item = lstFiles.SelectedItems[0];
                     var fileItem = item.Tag as FileItem;
-                    if (fileItem != null && (fileItem.Status == RecognitionStatus.Failed || fileItem.Status == RecognitionStatus.Pending))
+                    if (fileItem != null)
                     {
                         using (var reviewForm = new ManualReviewForm(fileItem, (fi, barcode) =>
                         {
-                            scanService.ManualSetBarcode(fi, barcode);
+                            // 根据文件状态选择不同的处理方式
+                            if (fi.Status == RecognitionStatus.Success)
+                            {
+                                // 已识别成功的文件，只重命名
+                                scanService.ManualRenameFile(fi, barcode);
+                            }
+                            else
+                            {
+                                // 识别失败或待识别的文件，需要移动
+                                scanService.ManualSetBarcode(fi, barcode);
+                                if (fi.Status == RecognitionStatus.Failed)
+                                {
+                                    totalStats.FailedCount--;
+                                }
+                                totalStats.ManualCount++;
+                            }
                             UpdateFileListItem(item, fi);
-                            totalStats.ManualCount++;
-                            totalStats.FailedCount--;
                             UpdateStatistics();
                         }))
                         {
                             reviewForm.ShowDialog();
                         }
-                    }
-                    else
-                    {
-                        MessageBox.Show("只能对识别失败或待识别的文件进行人工审核", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     }
                 }
             };
@@ -449,6 +493,7 @@ namespace BarcodeRenamer2
         {
             var item = new ListViewItem(fileItem.FileName);
             item.SubItems.Add(fileItem.FilePath);
+            item.SubItems.Add(fileItem.OutputFilePath ?? ""); // 添加输出路径列
             item.SubItems.Add(fileItem.FormattedSize);
             item.SubItems.Add(fileItem.FileType);
             item.SubItems.Add(fileItem.StatusDescription);
@@ -475,9 +520,14 @@ namespace BarcodeRenamer2
 
         private void UpdateFileListItem(ListViewItem item, FileItem fileItem)
         {
-            item.SubItems[4].Text = fileItem.StatusDescription;
-            item.SubItems[5].Text = fileItem.BarcodeContent ?? "";
-            item.SubItems[6].Text = fileItem.RecognitionTime.ToString("yyyy-MM-dd HH:mm:ss");
+            item.SubItems[0].Text = fileItem.FileName;
+            item.SubItems[1].Text = fileItem.FilePath;
+            item.SubItems[2].Text = fileItem.OutputFilePath ?? ""; // 更新输出路径
+            item.SubItems[3].Text = fileItem.FormattedSize;
+            item.SubItems[4].Text = fileItem.FileType;
+            item.SubItems[5].Text = fileItem.StatusDescription;
+            item.SubItems[6].Text = fileItem.BarcodeContent ?? "";
+            item.SubItems[7].Text = fileItem.RecognitionTime.ToString("yyyy-MM-dd HH:mm:ss");
 
             if (fileItem.Status == RecognitionStatus.Success)
             {

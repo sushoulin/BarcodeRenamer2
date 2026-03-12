@@ -159,11 +159,26 @@ namespace BarcodeRenamer2
         {
             try
             {
-                if (System.IO.File.Exists(fileItem.FilePath))
+                // 优先使用输出路径（已识别成功的文件），其次使用原始路径
+                string imagePath = fileItem.OutputFilePath ?? fileItem.FilePath;
+
+                // 如果输出路径不存在，尝试使用原始路径
+                if (!System.IO.File.Exists(imagePath) && !string.IsNullOrEmpty(fileItem.OriginalFilePath))
                 {
-                    using (var image = Image.FromFile(fileItem.FilePath))
+                    imagePath = fileItem.OriginalFilePath;
+                }
+
+                if (System.IO.File.Exists(imagePath))
+                {
+                    using (var image = Image.FromFile(imagePath))
                     {
                         pictureBox.Image = new Bitmap(image);
+                    }
+
+                    // 如果已有条形码内容，显示在输入框中
+                    if (!string.IsNullOrEmpty(fileItem.BarcodeContent))
+                    {
+                        txtBarcode.Text = fileItem.BarcodeContent;
                     }
                 }
             }

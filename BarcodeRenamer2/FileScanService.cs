@@ -196,8 +196,14 @@ namespace BarcodeRenamer2
                     counter++;
                 }
 
+                // 保存原始文件路径（用于人工审核）
+                fileItem.OriginalFilePath = fileItem.FilePath;
+
                 // 移动文件
                 File.Move(fileItem.FilePath, newFilePath);
+
+                // 更新文件信息
+                fileItem.OutputFilePath = newFilePath;
                 fileItem.FilePath = newFilePath;
                 fileItem.FileName = newFileName;
             }
@@ -218,6 +224,60 @@ namespace BarcodeRenamer2
             fileItem.RecognitionTime = DateTime.Now;
 
             MoveFile(fileItem);
+        }
+
+        /// <summary>
+        /// 手动重命名已识别成功的文件
+        /// </summary>
+        public void ManualRenameFile(FileItem fileItem, string newBarcode)
+        {
+            if (string.IsNullOrEmpty(fileItem.OutputFilePath) || !File.Exists(fileItem.OutputFilePath))
+            {
+                return;
+            }
+
+            try
+            {
+                // 确保输出目录存在
+                if (!Directory.Exists(config.OutputFolder))
+                {
+                    Directory.CreateDirectory(config.OutputFolder);
+                }
+
+                // 生成新文件名
+                string extension = Path.GetExtension(fileItem.OutputFilePath);
+                string newFileName = $"{newBarcode}{extension}";
+                string newFilePath = Path.Combine(config.OutputFolder, newFileName);
+
+                // 如果目标文件已存在，添加序号
+                int counter = 1;
+                while (File.Exists(newFilePath) && newFilePath != fileItem.OutputFilePath)
+                {
+                    newFileName = $"{newBarcode}_{counter}{extension}";
+                    newFilePath = Path.Combine(config.OutputFolder, newFileName);
+                    counter++;
+                }
+
+                // 如果新路径与当前路径相同，无需重命名
+                if (newFilePath == fileItem.OutputFilePath)
+                {
+                    return;
+                }
+
+                // 重命名文件
+                File.Move(fileItem.OutputFilePath, newFilePath);
+
+                // 更新文件信息
+                fileItem.BarcodeContent = newBarcode;
+                fileItem.FileName = newFileName;
+                fileItem.FilePath = newFilePath;
+                fileItem.OutputFilePath = newFilePath;
+                fileItem.IsManualReview = true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"重命名文件失败: {ex.Message}");
+            }
         }
     }
 
