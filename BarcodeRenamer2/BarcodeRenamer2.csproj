@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net6.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <AssemblyName>BarcodeRenamer2</AssemblyName>
+    <RootNamespace>BarcodeRenamer2</RootNamespace>
+    <Version>1.0.0</Version>
+    <Authors>sushoulin</Authors>
+    <Description>图片条形码识别重命名工具</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ZXing.Net" Version="0.16.9" />
+    <PackageReference Include="ZXing.Net.Bindings.Windows.Compatibility" Version="0.16.12" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+</Project>
