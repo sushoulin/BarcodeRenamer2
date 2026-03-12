@@ -418,6 +418,23 @@ namespace BarcodeRenamer2
                 }
             };
 
+            scanService.FileRecognized += (s, fileItem) =>
+            {
+                if (this.InvokeRequired)
+                {
+                    this.Invoke(new Action(() =>
+                    {
+                        UpdateFileItemInList(fileItem);
+                        UpdateStatisticsAfterRecognition(fileItem);
+                    }));
+                }
+                else
+                {
+                    UpdateFileItemInList(fileItem);
+                    UpdateStatisticsAfterRecognition(fileItem);
+                }
+            };
+
             scanService.StatisticsUpdated += (s, stats) =>
             {
                 if (this.InvokeRequired)
@@ -428,6 +445,12 @@ namespace BarcodeRenamer2
                         UpdateStatistics();
                     }));
                 }
+                else
+                {
+                    totalStats.Add(stats);
+                    UpdateStatistics();
+                }
+            };
                 else
                 {
                     totalStats.Add(stats);
@@ -515,6 +538,10 @@ namespace BarcodeRenamer2
             {
                 item.BackColor = Color.LightYellow;
             }
+            else if (fileItem.Status == RecognitionStatus.Recognizing)
+            {
+                item.BackColor = Color.LightBlue;
+            }
 
             lstFiles.Items.Insert(0, item);
         }
@@ -539,6 +566,18 @@ namespace BarcodeRenamer2
             {
                 item.BackColor = Color.LightYellow;
             }
+            else if (fileItem.Status == RecognitionStatus.Failed)
+            {
+                item.BackColor = Color.LightPink;
+            }
+            else if (fileItem.Status == RecognitionStatus.Recognizing)
+            {
+                item.BackColor = Color.LightBlue;
+            }
+            else if (fileItem.Status == RecognitionStatus.Pending)
+            {
+                item.BackColor = Color.White;
+            }
         }
 
         private void UpdateStatistics()
@@ -547,6 +586,50 @@ namespace BarcodeRenamer2
             lblSuccessCount.Text = $"成功: {totalStats.SuccessCount}";
             lblFailedCount.Text = $"失败: {totalStats.FailedCount}";
             lblManualCount.Text = $"人工: {totalStats.ManualCount}";
+        }
+
+        /// <summary>
+        /// 更新列表中的文件项（异步识别后）
+        /// </summary>
+        private void UpdateFileItemInList(FileItem fileItem)
+        {
+            // 查找对应的 ListViewItem
+            foreach (ListViewItem item in lstFiles.Items)
+            {
+                if (item.Tag is FileItem itemFile && itemFile.FilePath == fileItem.OriginalFilePath)
+                {
+                    UpdateFileListItem(item, fileItem);
+                    break;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 识别完成后更新统计
+        /// </summary>
+        private void UpdateStatisticsAfterRecognition(FileItem fileItem)
+        {
+            // 减少 Pending 计数
+            if (totalStats.PendingCount > 0)
+            {
+                totalStats.PendingCount--;
+            }
+
+            // 增加对应状态的计数
+            if (fileItem.Status == RecognitionStatus.Success)
+            {
+                totalStats.SuccessCount++;
+            }
+            else if (fileItem.Status == RecognitionStatus.Failed)
+            {
+                totalStats.FailedCount++;
+            }
+            else if (fileItem.Status == RecognitionStatus.Manual)
+            {
+                totalStats.ManualCount++;
+            }
+
+            UpdateStatistics();
         }
     }
 }

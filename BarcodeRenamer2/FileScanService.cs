@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading.Tasks;
 
 namespace BarcodeRenamer2
 {
@@ -12,8 +13,11 @@ namespace BarcodeRenamer2
         private readonly AppConfig config;
         private readonly BarcodeRecognitionService recognitionService;
         private readonly HashSet<string> processedFiles;
+        private readonly Queue<FileItem> pendingRecognitionQueue;
+        private bool isRecognizing = false;
 
         public event EventHandler<FileItem>? FileProcessed;
+        public event EventHandler<FileItem>? FileRecognized;
         public event EventHandler<ScanStatistics>? StatisticsUpdated;
 
         public FileScanService(AppConfig config)
@@ -21,6 +25,7 @@ namespace BarcodeRenamer2
             this.config = config;
             this.recognitionService = new BarcodeRecognitionService();
             this.processedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            this.pendingRecognitionQueue = new Queue<FileItem>();
         }
 
         /// <summary>
@@ -48,7 +53,7 @@ namespace BarcodeRenamer2
         }
 
         /// <summary>
-        /// 扫描文件夹中的图片文件
+        /// 扫描文件夹中的图片文件（快速扫描，只获取文件列表）
         /// </summary>
         public void ScanFolder()
         {
@@ -74,31 +79,24 @@ namespace BarcodeRenamer2
                                 continue;
                             }
 
-                            var fileItem = ProcessFile(filePath);
+                            // 快速创建文件项，不进行识别
+                            var fileItem = CreateFileItem(filePath);
 
-                            // 标记文件为已处理（无论成功或失败）
+                            // 标记文件为已处理
                             MarkFileAsProcessed(filePath);
 
                             stats.TotalCount++;
+                            stats.PendingCount++;
 
-                            if (fileItem.Status == RecognitionStatus.Success)
-                            {
-                                stats.SuccessCount++;
-                            }
-                            else if (fileItem.Status == RecognitionStatus.Failed)
-                            {
-                                stats.FailedCount++;
-                            }
-                            else if (fileItem.Status == RecognitionStatus.Manual)
-                            {
-                                stats.ManualCount++;
-                            }
-
+                            // 立即通知UI显示文件
                             FileProcessed?.Invoke(this, fileItem);
+
+                            // 添加到待识别队列
+                            pendingRecognitionQueue.Enqueue(fileItem);
                         }
                         catch (Exception ex)
                         {
-                            System.Diagnostics.Debug.WriteLine($"处理文件失败 {filePath}: {ex.Message}");
+                            System.Diagnostics.Debug.WriteLine($"扫描文件失败 {filePath}: {ex.Message}");
                         }
                     }
                 }
@@ -109,24 +107,75 @@ namespace BarcodeRenamer2
             }
 
             StatisticsUpdated?.Invoke(this, stats);
+
+            // 启动异步识别
+            if (!isRecognizing && pendingRecognitionQueue.Count > 0)
+            {
+                _ = StartAsyncRecognition();
+            }
         }
 
         /// <summary>
-        /// 处理单个文件
+        /// 快速创建文件项，不进行识别
         /// </summary>
-        private FileItem ProcessFile(string filePath)
+        private FileItem CreateFileItem(string filePath)
         {
-            var fileItem = FileItem.FromPath(filePath);
+            var fileInfo = new FileInfo(filePath);
+            return new FileItem
+            {
+                FileName = fileInfo.Name,
+                FilePath = filePath,
+                FileSize = fileInfo.Length,
+                FileType = fileInfo.Extension.ToUpper().TrimStart('.'),
+                Status = RecognitionStatus.Pending,
+                OriginalFilePath = filePath
+            };
+        }
+
+        /// <summary>
+        /// 启动异步识别
+        /// </summary>
+        private async Task StartAsyncRecognition()
+        {
+            isRecognizing = true;
+
+            while (pendingRecognitionQueue.Count > 0)
+            {
+                var fileItem = pendingRecognitionQueue.Dequeue();
+
+                try
+                {
+                    // 异步识别
+                    await Task.Run(() => RecognizeFile(fileItem));
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"识别文件失败 {fileItem.FilePath}: {ex.Message}");
+                }
+            }
+
+            isRecognizing = false;
+        }
+
+        /// <summary>
+        /// 识别单个文件
+        /// </summary>
+        private void RecognizeFile(FileItem fileItem)
+        {
+            // 更新状态为识别中
+            fileItem.Status = RecognitionStatus.Recognizing;
+            FileRecognized?.Invoke(this, fileItem);
 
             // 检查文件是否被占用
-            if (IsFileLocked(filePath))
+            if (IsFileLocked(fileItem.FilePath))
             {
                 fileItem.Status = RecognitionStatus.Pending;
-                return fileItem;
+                FileRecognized?.Invoke(this, fileItem);
+                return;
             }
 
             // 识别条形码
-            var result = recognitionService.Recognize(filePath);
+            var result = recognitionService.Recognize(fileItem.FilePath);
             fileItem.RecognitionTime = DateTime.Now;
 
             if (result.Success && !string.IsNullOrEmpty(result.Content))
@@ -142,7 +191,8 @@ namespace BarcodeRenamer2
                 fileItem.Status = RecognitionStatus.Failed;
             }
 
-            return fileItem;
+            // 通知UI更新
+            FileRecognized?.Invoke(this, fileItem);
         }
 
         /// <summary>
@@ -290,6 +340,7 @@ namespace BarcodeRenamer2
         public int SuccessCount { get; set; }
         public int FailedCount { get; set; }
         public int ManualCount { get; set; }
+        public int PendingCount { get; set; }
 
         public void Add(ScanStatistics other)
         {
@@ -297,6 +348,7 @@ namespace BarcodeRenamer2
             SuccessCount += other.SuccessCount;
             FailedCount += other.FailedCount;
             ManualCount += other.ManualCount;
+            PendingCount += other.PendingCount;
         }
     }
 }

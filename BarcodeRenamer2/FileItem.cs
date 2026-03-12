@@ -87,6 +87,7 @@ namespace BarcodeRenamer2
                 return Status switch
                 {
                     RecognitionStatus.Pending => "待识别",
+                    RecognitionStatus.Recognizing => "识别中...",
                     RecognitionStatus.Success => "识别成功",
                     RecognitionStatus.Failed => "识别失败",
                     RecognitionStatus.Manual => "人工审核",
@@ -121,6 +122,11 @@ namespace BarcodeRenamer2
         /// 待识别
         /// </summary>
         Pending = 0,
+
+        /// <summary>
+        /// 识别中
+        /// </summary>
+        Recognizing = 4,
 
         /// <summary>
         /// 识别成功
