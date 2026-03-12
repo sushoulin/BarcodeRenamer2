@@ -237,7 +237,7 @@ namespace BarcodeRenamer2
             };
 
             lstFiles.Columns.Add("文件名", 180);
-            lstFiles.Columns.Add("文件路径", 200);
+            lstFiles.Columns.Add("扫描路径", 200);
             lstFiles.Columns.Add("输出路径", 200);
             lstFiles.Columns.Add("大小", 70);
             lstFiles.Columns.Add("类型", 50);
@@ -492,8 +492,9 @@ namespace BarcodeRenamer2
         private void AddFileToList(FileItem fileItem)
         {
             var item = new ListViewItem(fileItem.FileName);
-            item.SubItems.Add(fileItem.FilePath);
-            item.SubItems.Add(fileItem.OutputFilePath ?? ""); // 添加输出路径列
+            // 扫描路径：优先显示原始路径，如果没有则显示当前路径
+            item.SubItems.Add(fileItem.OriginalFilePath ?? fileItem.FilePath);
+            item.SubItems.Add(fileItem.OutputFilePath ?? ""); // 输出路径
             item.SubItems.Add(fileItem.FormattedSize);
             item.SubItems.Add(fileItem.FileType);
             item.SubItems.Add(fileItem.StatusDescription);
@@ -521,8 +522,9 @@ namespace BarcodeRenamer2
         private void UpdateFileListItem(ListViewItem item, FileItem fileItem)
         {
             item.SubItems[0].Text = fileItem.FileName;
-            item.SubItems[1].Text = fileItem.FilePath;
-            item.SubItems[2].Text = fileItem.OutputFilePath ?? ""; // 更新输出路径
+            // 扫描路径：优先显示原始路径，如果没有则显示当前路径
+            item.SubItems[1].Text = fileItem.OriginalFilePath ?? fileItem.FilePath;
+            item.SubItems[2].Text = fileItem.OutputFilePath ?? ""; // 输出路径
             item.SubItems[3].Text = fileItem.FormattedSize;
             item.SubItems[4].Text = fileItem.FileType;
             item.SubItems[5].Text = fileItem.StatusDescription;
