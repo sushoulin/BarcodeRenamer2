@@ -165,6 +165,67 @@ BarcodeRenamer2/
 - 如果目标文件已存在，程序会自动在文件名后添加序号
 - 建议定期清理输出文件夹，避免文件积累过多
 
+## 识别率说明
+
+### 当前方案
+
+本工具使用 **ZXing.Net** 开源库进行条形码识别，针对黑白条形码进行了深度优化：
+
+- ✅ 支持多种一维条形码格式
+- ✅ 6层智能识别策略
+- ✅ 图像预处理（灰度化、二值化、对比度增强）
+- ✅ 右上角区域优先识别
+- ✅ 多尺度缩放（0.2x-5.0x）
+
+### 识别率提升建议
+
+如果您遇到识别困难的情况，建议：
+
+1. **使用商业条形码识别库**（推荐）
+   - **IronBarcode**: https://ironsoftware.com/csharp/barcode/
+     - 识别率高，支持多种格式
+     - 提供免费试用
+     - 易于集成到现有项目
+
+   - **Spire.Barcode**: https://www.e-iceblue.com/Introduce/barcode-for-net.html
+     - 功能强大，识别准确
+     - 有免费版和商业版
+
+   - **Dynamsoft Barcode Reader**: https://www.dynamsoft.com/barcode-reader/
+     - 企业级解决方案
+     - 识别率极高
+
+2. **图像质量优化**
+   - 使用高分辨率图片
+   - 确保条形码清晰可见
+   - 避免模糊和遮挡
+
+3. **人工审核**
+   - 工具提供便捷的人工审核功能
+   - 可预览图片并手动输入条形码
+   - 支持所有状态的文件
+
+### 集成 IronBarcode 示例
+
+如果您决定使用 IronBarcode，可以参考以下代码：
+
+```csharp
+// 安装 NuGet 包: IronBarCode
+using IronBarCode;
+
+// 替换 BarcodeRecognitionService 中的识别方法
+var result = BarcodeReader.Read(imagePath);
+if (result != null && result.Count > 0)
+{
+    return new RecognitionResult
+    {
+        Success = true,
+        Content = result[0].Value,
+        Format = result[0].BarcodeType.ToString()
+    };
+}
+```
+
 ## 许可证
 
 MIT License
@@ -178,6 +239,14 @@ sushoulin
 欢迎提交 Issue 和 Pull Request！
 
 ## 更新日志
+
+### v1.1.0 (2025-03-12)
+- 大幅优化条形码识别率
+- 新增右上角区域优先识别
+- 新增强力二值化识别策略
+- 新增四角落区域识别
+- 扩展缩放范围（0.2x-5.0x）
+- 优化识别流程
 
 ### v1.0.0 (2024-03-12)
 - 初始版本发布
