@@ -37,11 +37,16 @@ namespace BarcodeRenamer2
                         BarcodeFormat.ITF,
                         BarcodeFormat.CODABAR
                     },
-                    // 增加识别参数
+                    // 优化识别参数
                     PureBarcode = false,
-                    ReturnCodabarStartEnd = true
+                    ReturnCodabarStartEnd = true,
+                    // 添加更多识别选项
+                    TryInverted = true
                 }
             };
+
+            // 设置更高的容错率
+            reader.Options.TryHarder = true;
         }
 
         /// <summary>
@@ -55,36 +60,43 @@ namespace BarcodeRenamer2
             {
                 using (var bitmap = new Bitmap(imagePath))
                 {
-                    // 策略1: 尝试原始图片识别
-                    var result = reader.Decode(bitmap);
+                    // 策略0: 尝试右上角区域识别（条形码通常在右上角）
+                    var result = TryTopRightRegion(bitmap);
                     if (result != null)
                     {
                         return CreateSuccessResult(result);
                     }
 
-                    // 策略2: 尝试多个角度旋转识别
+                    // 策略1: 尝试原始图片识别
+                    result = reader.Decode(bitmap);
+                    if (result != null)
+                    {
+                        return CreateSuccessResult(result);
+                    }
+
+                    // 策略2: 强力二值化识别（黑白图片优化）
+                    result = TryAggressiveBinarization(bitmap);
+                    if (result != null)
+                    {
+                        return CreateSuccessResult(result);
+                    }
+
+                    // 策略3: 尝试多个角度旋转识别
                     result = TryMultipleRotations(bitmap);
                     if (result != null)
                     {
                         return CreateSuccessResult(result);
                     }
 
-                    // 策略3: 尝试不同尺寸缩放识别
+                    // 策略4: 尝试不同尺寸缩放识别
                     result = TryDifferentScales(imagePath);
                     if (result != null)
                     {
                         return CreateSuccessResult(result);
                     }
 
-                    // 策略4: 尝试图像预处理（灰度化、对比度增强）
+                    // 策略5: 尝试图像预处理（灰度化、对比度增强）
                     result = TryWithPreprocessing(bitmap);
-                    if (result != null)
-                    {
-                        return CreateSuccessResult(result);
-                    }
-
-                    // 策略5: 尝试二值化处理
-                    result = TryWithBinarization(bitmap);
                     if (result != null)
                     {
                         return CreateSuccessResult(result);
@@ -92,6 +104,13 @@ namespace BarcodeRenamer2
 
                     // 策略6: 组合策略 - 预处理 + 旋转 + 缩放
                     result = TryCombinedStrategies(imagePath);
+                    if (result != null)
+                    {
+                        return CreateSuccessResult(result);
+                    }
+
+                    // 策略7: 四个角落区域识别
+                    result = TryCornerRegions(bitmap);
                     if (result != null)
                     {
                         return CreateSuccessResult(result);
@@ -128,6 +147,160 @@ namespace BarcodeRenamer2
         }
 
         /// <summary>
+        /// 尝试右上角区域识别
+        /// </summary>
+        private Result? TryTopRightRegion(Bitmap original)
+        {
+            try
+            {
+                // 右上角区域：宽度的50%-100%，高度的0%-50%
+                int startX = original.Width / 2;
+                int startY = 0;
+                int regionWidth = original.Width / 2;
+                int regionHeight = original.Height / 2;
+
+                // 裁剪右上角区域
+                using (var region = new Bitmap(regionWidth, regionHeight))
+                {
+                    using (var g = Graphics.FromImage(region))
+                    {
+                        g.DrawImage(original,
+                            new Rectangle(0, 0, regionWidth, regionHeight),
+                            new Rectangle(startX, startY, regionWidth, regionHeight),
+                            GraphicsUnit.Pixel);
+                    }
+
+                    var result = reader.Decode(region);
+                    if (result != null)
+                    {
+                        return result;
+                    }
+
+                    // 右上角区域放大2-4倍识别
+                    for (int scale = 2; scale <= 4; scale++)
+                    {
+                        using (var scaled = new Bitmap(region, regionWidth * scale, regionHeight * scale))
+                        {
+                            result = reader.Decode(scaled);
+                            if (result != null)
+                            {
+                                return result;
+                            }
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // 忽略错误
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// 强力二值化识别（针对黑白条形码优化）
+        /// </summary>
+        private Result? TryAggressiveBinarization(Bitmap original)
+        {
+            // 针对黑白条形码，尝试多种二值化策略
+            int[] thresholds = { 50, 70, 90, 110, 128, 150, 170, 190, 210 };
+
+            foreach (int threshold in thresholds)
+            {
+                try
+                {
+                    using (var binary = Binarize(original, threshold))
+                    {
+                        var result = reader.Decode(binary);
+                        if (result != null)
+                        {
+                            return result;
+                        }
+
+                        // 二值化后放大识别
+                        for (int scale = 2; scale <= 3; scale++)
+                        {
+                            using (var scaled = new Bitmap(binary, original.Width * scale, original.Height * scale))
+                            {
+                                result = reader.Decode(scaled);
+                                if (result != null)
+                                {
+                                    return result;
+                                }
+                            }
+                        }
+                    }
+                }
+                catch
+                {
+                    // 忽略错误
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// 尝试四个角落区域识别
+        /// </summary>
+        private Result? TryCornerRegions(Bitmap original)
+        {
+            var regions = new[]
+            {
+                new { Name = "TopLeft", X = 0, Y = 0 },
+                new { Name = "TopRight", X = original.Width / 2, Y = 0 },
+                new { Name = "BottomLeft", X = 0, Y = original.Height / 2 },
+                new { Name = "BottomRight", X = original.Width / 2, Y = original.Height / 2 }
+            };
+
+            int regionWidth = original.Width / 2;
+            int regionHeight = original.Height / 2;
+
+            foreach (var regionInfo in regions)
+            {
+                try
+                {
+                    using (var region = new Bitmap(regionWidth, regionHeight))
+                    {
+                        using (var g = Graphics.FromImage(region))
+                        {
+                            g.DrawImage(original,
+                                new Rectangle(0, 0, regionWidth, regionHeight),
+                                new Rectangle(regionInfo.X, regionInfo.Y, regionWidth, regionHeight),
+                                GraphicsUnit.Pixel);
+                        }
+
+                        var result = reader.Decode(region);
+                        if (result != null)
+                        {
+                            return result;
+                        }
+
+                        // 区域放大识别
+                        for (int scale = 2; scale <= 4; scale++)
+                        {
+                            using (var scaled = new Bitmap(region, regionWidth * scale, regionHeight * scale))
+                            {
+                                result = reader.Decode(scaled);
+                                if (result != null)
+                                {
+                                    return result;
+                                }
+                            }
+                        }
+                    }
+                }
+                catch
+                {
+                    // 忽略错误
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
         /// 尝试多个角度旋转识别
         /// </summary>
         private Result? TryMultipleRotations(Bitmap bitmap)
@@ -161,8 +334,8 @@ namespace BarcodeRenamer2
         /// </summary>
         private Result? TryDifferentScales(string imagePath)
         {
-            // 增加更多缩放比例
-            double[] scales = { 0.3, 0.5, 0.75, 1.25, 1.5, 2.0, 2.5, 3.0 };
+            // 增加更多缩放比例，包括更大的倍数
+            double[] scales = { 0.2, 0.3, 0.4, 0.5, 0.6, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0 };
 
             foreach (double scale in scales)
             {
@@ -172,6 +345,11 @@ namespace BarcodeRenamer2
                     {
                         int newWidth = (int)(original.Width * scale);
                         int newHeight = (int)(original.Height * scale);
+
+                        if (newWidth < 10 || newHeight < 10 || newWidth > 10000 || newHeight > 10000)
+                        {
+                            continue;
+                        }
 
                         using (var scaled = new Bitmap(original, newWidth, newHeight))
                         {
