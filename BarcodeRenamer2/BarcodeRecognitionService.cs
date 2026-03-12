@@ -35,8 +35,7 @@ namespace BarcodeRenamer2
                         BarcodeFormat.UPC_A,
                         BarcodeFormat.UPC_E,
                         BarcodeFormat.ITF,
-                        BarcodeFormat.CODABAR,
-                        BarcodeFormat.CODE_39_EXTENDED
+                        BarcodeFormat.CODABAR
                     },
                     // 增加识别参数
                     PureBarcode = false,
@@ -297,10 +296,10 @@ namespace BarcodeRenamer2
                             int newHeight = grayscale.Height * scale;
                             using (var scaled = new Bitmap(grayscale, newWidth, newHeight))
                             {
-                                result = reader.Decode(scaled);
-                                if (result != null)
+                                var scaledResult = reader.Decode(scaled);
+                                if (scaledResult != null)
                                 {
-                                    return result;
+                                    return scaledResult;
                                 }
                             }
                         }
