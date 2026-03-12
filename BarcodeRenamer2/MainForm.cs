@@ -451,12 +451,6 @@ namespace BarcodeRenamer2
                     UpdateStatistics();
                 }
             };
-                else
-                {
-                    totalStats.Add(stats);
-                    UpdateStatistics();
-                }
-            };
 
             scanTimer.Tick += (s, e) =>
             {
