@@ -61,20 +61,24 @@ namespace BarcodeRenamer2
                         int cropWidth = (int)(noBlank.Width * 0.5); // 50%宽度
                         using (var cropped = CropTopRightRegion(noBlank, cropHeight, cropWidth))
                         {
-                            // 保存裁剪图片
-                            if (!string.IsNullOrEmpty(outputFolder))
+                            // 去除毛边/锯齿，提高清晰度
+                            using (var smoothed = SmoothImage(cropped))
                             {
-                                SaveCroppedImage(cropped, imagePath, outputFolder, barcodeContent);
-                            }
-                            
-                            // 调整DPI到400
-                            using (var highDpi = SetHighDPI(cropped, 400))
-                            {
-                                // 多线程识别策略
-                                var result = MultiThreadRecognition(highDpi);
-                                if (result != null && ValidateResult(result))
+                                // 保存裁剪图片
+                                if (!string.IsNullOrEmpty(outputFolder))
                                 {
-                                    return CreateSuccessResult(result);
+                                    SaveCroppedImage(smoothed, imagePath, outputFolder, barcodeContent);
+                                }
+                                
+                                // 调整DPI到400
+                                using (var highDpi = SetHighDPI(smoothed, 400))
+                                {
+                                    // 多线程识别策略
+                                    var result = MultiThreadRecognition(highDpi);
+                                    if (result != null && ValidateResult(result))
+                                    {
+                                        return CreateSuccessResult(result);
+                                    }
                                 }
                             }
                         }
@@ -280,6 +284,97 @@ namespace BarcodeRenamer2
             }
             
             return 0;
+        }
+        
+        /// <summary>
+        /// 去除毛边/锯齿，提高条形码清晰度
+        /// </summary>
+        private Bitmap SmoothImage(Bitmap original)
+        {
+            int w = original.Width;
+            int h = original.Height;
+            
+            // 创建平滑后的图像
+            var smoothed = new Bitmap(w, h);
+            
+            using (var g = Graphics.FromImage(smoothed))
+            {
+                // 设置高质量渲染
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+                g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                g.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
+                
+                // 绘制原图（应用平滑）
+                g.DrawImage(original, 0, 0, w, h);
+            }
+            
+            // 应用锐化滤镜（增强条形码边缘）
+            using (var sharpened = ApplySharpenFilter(smoothed, 1.5))
+            {
+                smoothed.Dispose();
+                return sharpened;
+            }
+        }
+        
+        /// <summary>
+        /// 应用锐化滤镜（增强边缘）
+        /// </summary>
+        private Bitmap ApplySharpenFilter(Bitmap original, double strength)
+        {
+            int w = original.Width;
+            int h = original.Height;
+            
+            var sharpened = new Bitmap(w, h);
+            
+            // 锐化卷积核
+            double[,] kernel = {
+                { 0, -1, 0 },
+                { -1, 4 + strength, -1 },
+                { 0, -1, 0 }
+            };
+            
+            // 应用卷积
+            for (int y = 1; y < h - 1; y++)
+            {
+                for (int x = 1; x < w - 1; x++)
+                {
+                    double r = 0, g = 0, b = 0;
+                    
+                    for (int ky = -1; ky <= 1; ky++)
+                    {
+                        for (int kx = -1; kx <= 1; kx++)
+                        {
+                            var pixel = original.GetPixel(x + kx, y + ky);
+                            double k = kernel[ky + 1, kx + 1];
+                            r += pixel.R * k;
+                            g += pixel.G * k;
+                            b += pixel.B * k;
+                        }
+                    }
+                    
+                    // 限制RGB值范围
+                    int newR = Math.Min(255, Math.Max(0, (int)r));
+                    int newG = Math.Min(255, Math.Max(0, (int)g));
+                    int newB = Math.Min(255, Math.Max(0, (int)b));
+                    
+                    sharpened.SetPixel(x, y, Color.FromArgb(newR, newG, newB));
+                }
+            }
+            
+            // 复制边缘像素
+            for (int x = 0; x < w; x++)
+            {
+                sharpened.SetPixel(x, 0, original.GetPixel(x, 0));
+                sharpened.SetPixel(x, h - 1, original.GetPixel(x, h - 1));
+            }
+            for (int y = 0; y < h; y++)
+            {
+                sharpened.SetPixel(0, y, original.GetPixel(0, y));
+                sharpened.SetPixel(w - 1, y, original.GetPixel(w - 1, y));
+            }
+            
+            return sharpened;
         }
         
         /// <summary>
