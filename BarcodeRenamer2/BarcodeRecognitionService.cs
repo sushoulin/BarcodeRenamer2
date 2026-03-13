@@ -9,7 +9,7 @@ using ZXing.Windows.Compatibility;
 namespace BarcodeRenamer2
 {
     /// <summary>
-    /// 条形码识别服务类 - 专注于右上角区域高精度识别
+    /// 条形码识别服务类 - 专注于右上角区域快速识别
     /// </summary>
     public class BarcodeRecognitionService
     {
@@ -26,7 +26,6 @@ namespace BarcodeRenamer2
                     TryHarder = true,
                     PossibleFormats = new List<BarcodeFormat>
                     {
-                        // 只保留一维条形码格式
                         BarcodeFormat.CODE_128,
                         BarcodeFormat.CODE_39,
                         BarcodeFormat.CODE_93,
@@ -53,8 +52,8 @@ namespace BarcodeRenamer2
             {
                 using (var bitmap = new Bitmap(imagePath))
                 {
-                    // 唯一策略：右上角区域高精度识别
-                    var result = TryTopRightRegionHighPrecision(bitmap);
+                    // 快速识别右上角区域
+                    var result = TryTopRightRegion(bitmap);
                     if (result != null)
                     {
                         return CreateSuccessResult(result);
@@ -63,6 +62,7 @@ namespace BarcodeRenamer2
             }
             catch (Exception ex)
             {
+                System.Diagnostics.Debug.WriteLine($"识别异常: {ex.Message}");
                 return new RecognitionResult
                 {
                     Success = false,
@@ -78,9 +78,9 @@ namespace BarcodeRenamer2
         }
 
         /// <summary>
-        /// 右上角区域高精度识别
+        /// 右上角区域快速识别
         /// </summary>
-        private Result? TryTopRightRegionHighPrecision(Bitmap original)
+        private Result? TryTopRightRegion(Bitmap original)
         {
             int w = original.Width;
             int h = original.Height;
@@ -112,8 +112,8 @@ namespace BarcodeRenamer2
                     result = reader.Decode(gray);
                     if (result != null) return result;
 
-                    // 策略3: 多阈值二值化识别
-                    int[] thresholds = { 80, 100, 110, 120, 128, 140, 150, 170, 190 };
+                    // 策略3: 二值化识别（尝试几个关键阈值）
+                    int[] thresholds = { 128, 100, 150 };
                     foreach (int thresh in thresholds)
                     {
                         using (var binary = Binarize(gray, thresh))
@@ -123,63 +123,23 @@ namespace BarcodeRenamer2
                         }
                     }
 
-                    // 策略4: 放大后识别
-                    int[] scales = { 2, 3, 4, 5, 6 };
-                    foreach (int scale in scales)
+                    // 策略4: 放大2倍后识别
+                    int scale = 2;
+                    int newW = regionWidth * scale;
+                    int newH = regionHeight * scale;
+
+                    using (var scaledGray = new Bitmap(gray, newW, newH))
                     {
-                        int newW = regionWidth * scale;
-                        int newH = regionHeight * scale;
-
-                        // 放大原图
-                        using (var scaledRegion = new Bitmap(region, newW, newH))
-                        {
-                            result = reader.Decode(scaledRegion);
-                            if (result != null) return result;
-                        }
-
-                        // 放大灰度图
-                        using (var scaledGray = new Bitmap(gray, newW, newH))
-                        {
-                            result = reader.Decode(scaledGray);
-                            if (result != null) return result;
-
-                            // 放大后二值化
-                            foreach (int thresh in thresholds)
-                            {
-                                using (var binary = Binarize(scaledGray, thresh))
-                                {
-                                    result = reader.Decode(binary);
-                                    if (result != null) return result;
-                                }
-                            }
-                        }
-                    }
-
-                    // 策略5: 对比度增强
-                    using (var enhanced = EnhanceContrast(gray))
-                    {
-                        result = reader.Decode(enhanced);
+                        result = reader.Decode(scaledGray);
                         if (result != null) return result;
 
-                        // 放大增强后的图片
-                        foreach (int scale in scales)
+                        // 放大后二值化
+                        foreach (int thresh in thresholds)
                         {
-                            int newW = regionWidth * scale;
-                            int newH = regionHeight * scale;
-                            using (var scaled = new Bitmap(enhanced, newW, newH))
+                            using (var binary = Binarize(scaledGray, thresh))
                             {
-                                result = reader.Decode(scaled);
+                                result = reader.Decode(binary);
                                 if (result != null) return result;
-
-                                // 二值化
-                                foreach (int thresh in thresholds)
-                                {
-                                    using (var binary = Binarize(scaled, thresh))
-                                    {
-                                        result = reader.Decode(binary);
-                                        if (result != null) return result;
-                                    }
-                                }
                             }
                         }
                     }
@@ -231,37 +191,6 @@ namespace BarcodeRenamer2
             }
 
             return grayscale;
-        }
-
-        /// <summary>
-        /// 增强对比度
-        /// </summary>
-        private Bitmap EnhanceContrast(Bitmap original)
-        {
-            var enhanced = new Bitmap(original.Width, original.Height);
-
-            using (var g = Graphics.FromImage(enhanced))
-            {
-                var colorMatrix = new ColorMatrix(
-                    new float[][]
-                    {
-                        new float[] {1.5f, 0, 0, 0, 0},
-                        new float[] {0, 1.5f, 0, 0, 0},
-                        new float[] {0, 0, 1.5f, 0, 0},
-                        new float[] {0, 0, 0, 1, 0},
-                        new float[] {-0.25f, -0.25f, -0.25f, 0, 1}
-                    });
-
-                var attributes = new ImageAttributes();
-                attributes.SetColorMatrix(colorMatrix);
-
-                g.DrawImage(original,
-                    new Rectangle(0, 0, original.Width, original.Height),
-                    0, 0, original.Width, original.Height,
-                    GraphicsUnit.Pixel, attributes);
-            }
-
-            return enhanced;
         }
 
         /// <summary>

@@ -162,37 +162,50 @@ namespace BarcodeRenamer2
         /// </summary>
         private void RecognizeFile(FileItem fileItem)
         {
-            // 更新状态为识别中
-            fileItem.Status = RecognitionStatus.Recognizing;
-            FileRecognized?.Invoke(this, fileItem);
-
-            // 检查文件是否被占用
-            if (IsFileLocked(fileItem.FilePath))
+            try
             {
-                fileItem.Status = RecognitionStatus.Pending;
+                // 更新状态为识别中
+                fileItem.Status = RecognitionStatus.Recognizing;
                 FileRecognized?.Invoke(this, fileItem);
-                return;
+
+                // 检查文件是否被占用
+                if (IsFileLocked(fileItem.FilePath))
+                {
+                    fileItem.Status = RecognitionStatus.Pending;
+                    FileRecognized?.Invoke(this, fileItem);
+                    return;
+                }
+
+                // 识别条形码
+                var result = recognitionService.Recognize(fileItem.FilePath);
+                fileItem.RecognitionTime = DateTime.Now;
+
+                if (result.Success && !string.IsNullOrEmpty(result.Content))
+                {
+                    fileItem.Status = RecognitionStatus.Success;
+                    fileItem.BarcodeContent = result.Content;
+
+                    // 重命名并移动文件
+                    MoveFile(fileItem);
+                }
+                else
+                {
+                    fileItem.Status = RecognitionStatus.Failed;
+                }
             }
-
-            // 识别条形码
-            var result = recognitionService.Recognize(fileItem.FilePath);
-            fileItem.RecognitionTime = DateTime.Now;
-
-            if (result.Success && !string.IsNullOrEmpty(result.Content))
+            catch (Exception ex)
             {
-                fileItem.Status = RecognitionStatus.Success;
-                fileItem.BarcodeContent = result.Content;
-
-                // 重命名并移动文件
-                MoveFile(fileItem);
-            }
-            else
-            {
+                // 记录错误并设置为失败状态
+                System.Diagnostics.Debug.WriteLine($"识别文件异常 {fileItem.FilePath}: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"堆栈: {ex.StackTrace}");
                 fileItem.Status = RecognitionStatus.Failed;
+                fileItem.RecognitionTime = DateTime.Now;
             }
-
-            // 通知UI更新
-            FileRecognized?.Invoke(this, fileItem);
+            finally
+            {
+                // 无论如何都通知UI更新
+                FileRecognized?.Invoke(this, fileItem);
+            }
         }
 
         /// <summary>
