@@ -504,34 +504,43 @@ namespace BarcodeRenamer2
             int w = bitmap.Width;
             int h = bitmap.Height;
             
-            // 如果有ResultPoints，分析识别区域
-            if (result.ResultPoints != null && result.ResultPoints.Length >= 2)
+            // 关键：必须有ResultPoints，否则无法确定识别位置，直接拒绝
+            // 真正的条形码识别一定会有精确的坐标位置
+            if (result.ResultPoints == null || result.ResultPoints.Length < 2)
             {
-                float minX = float.MaxValue, maxX = float.MinValue;
-                float minY = float.MaxValue, maxY = float.MinValue;
-                
-                foreach (var point in result.ResultPoints)
-                {
-                    if (point == null) continue;
-                    if (point.X < minX) minX = point.X;
-                    if (point.X > maxX) maxX = point.X;
-                    if (point.Y < minY) minY = point.Y;
-                    if (point.Y > maxY) maxY = point.Y;
-                }
-                
-                // 扩展检测区域（确保覆盖完整条形码）
-                int padding = 5;
-                int startX = Math.Max(0, (int)minX - padding);
-                int endX = Math.Min(w - 1, (int)maxX + padding);
-                int startY = Math.Max(0, (int)minY - padding);
-                int endY = Math.Min(h - 1, (int)maxY + padding);
-                
-                return AnalyzeBarcodeRegion(bitmap, startX, endX, startY, endY);
+                System.Diagnostics.Debug.WriteLine("ZXing未返回识别位置坐标，拒绝此识别结果");
+                return false;
             }
             
-            // 没有ResultPoints，分析整个图像的关键区域
-            // 条形码通常在图像的某个角落或边缘
-            return AnalyzeKeyRegions(bitmap);
+            float minX = float.MaxValue, maxX = float.MinValue;
+            float minY = float.MaxValue, maxY = float.MinValue;
+            int validPointCount = 0;
+            
+            foreach (var point in result.ResultPoints)
+            {
+                if (point == null) continue;
+                validPointCount++;
+                if (point.X < minX) minX = point.X;
+                if (point.X > maxX) maxX = point.X;
+                if (point.Y < minY) minY = point.Y;
+                if (point.Y > maxY) maxY = point.Y;
+            }
+            
+            // 必须至少有2个有效点
+            if (validPointCount < 2)
+            {
+                System.Diagnostics.Debug.WriteLine("有效的识别位置点不足2个，拒绝此识别结果");
+                return false;
+            }
+            
+            // 扩展检测区域（确保覆盖完整条形码）
+            int padding = 10;
+            int startX = Math.Max(0, (int)minX - padding);
+            int endX = Math.Min(w - 1, (int)maxX + padding);
+            int startY = Math.Max(0, (int)minY - padding);
+            int endY = Math.Min(h - 1, (int)maxY + padding);
+            
+            return AnalyzeBarcodeRegion(bitmap, startX, endX, startY, endY);
         }
         
         /// <summary>
@@ -567,9 +576,9 @@ namespace BarcodeRenamer2
                 }
             }
             
-            // 1. 检查黑白像素比例（条形码应该大致平衡，30%-70%黑色）
+            // 1. 检查黑白像素比例（条形码应该大致平衡）
             double blackRatio = (double)blackCount / (blackCount + whiteCount);
-            if (blackRatio < 0.20 || blackRatio > 0.80)
+            if (blackRatio < 0.15 || blackRatio > 0.85)
             {
                 System.Diagnostics.Debug.WriteLine($"黑白像素比例不符合条形码特征: 黑色占比 {blackRatio:P1}");
                 return false;
@@ -579,7 +588,7 @@ namespace BarcodeRenamer2
             // 条形码每一行都应该有密集的黑白交替
             int validRows = 0;
             int totalRows = regionHeight;
-            int minTransitions = 20; // 提高到20次黑白交替（更严格）
+            int minTransitions = 10; // 降低到10次（更宽松）
             
             for (int y = 0; y < regionHeight; y++)
             {
@@ -599,9 +608,9 @@ namespace BarcodeRenamer2
                 }
             }
             
-            // 至少90%的行应该有足够的条纹交替（更严格）
+            // 至少70%的行应该有足够的条纹交替
             double validRowRatio = (double)validRows / totalRows;
-            if (validRowRatio < 0.9)
+            if (validRowRatio < 0.7)
             {
                 System.Diagnostics.Debug.WriteLine($"条纹行比例不足: {validRows}/{totalRows} ({validRowRatio:P1})");
                 return false;
@@ -625,179 +634,22 @@ namespace BarcodeRenamer2
                     }
                     
                     double similarity = (double)samePositions / regionWidth;
-                    if (similarity > 0.85) // 提高到85%相似度
+                    if (similarity > 0.7) // 70%相似度
                     {
                         consistentPairs++;
                     }
                 }
                 
                 double consistency = (double)consistentPairs / totalPairs;
-                if (consistency < 0.9) // 提高到90%
+                if (consistency < 0.7)
                 {
                     System.Diagnostics.Debug.WriteLine($"条纹一致性不足: {consistency:P1}");
                     return false;
                 }
             }
             
-            // 4. 新增：检测条纹宽度的合理性
-            // 真实条形码的条纹宽度应该相对均匀（不会出现过宽或过窄的条纹）
-            if (!CheckStripeWidthValidity(binaryPixels, regionHeight, regionWidth))
-            {
-                System.Diagnostics.Debug.WriteLine("条纹宽度不合理");
-                return false;
-            }
-            
-            // 5. 新增：检测边缘强度（条形码边缘应该清晰锐利）
-            if (!CheckEdgeSharpness(binaryPixels, regionHeight, regionWidth))
-            {
-                System.Diagnostics.Debug.WriteLine("边缘强度不足");
-                return false;
-            }
-            
             System.Diagnostics.Debug.WriteLine($"条形码特征验证通过: 黑色占比 {blackRatio:P1}, 有效行 {validRows}/{totalRows}");
             return true;
-        }
-        
-        /// <summary>
-        /// 检查条纹宽度的合理性
-        /// 真实条形码的条纹宽度应该相对均匀，不会有过宽或过窄的极端情况
-        /// </summary>
-        private bool CheckStripeWidthValidity(int[,] binaryPixels, int height, int width)
-        {
-            // 采样中间几行检测条纹宽度
-            int sampleRow = height / 2;
-            if (sampleRow >= height) sampleRow = 0;
-            
-            var stripeWidths = new List<int>();
-            int currentWidth = 1;
-            int currentValue = binaryPixels[sampleRow, 0];
-            
-            for (int x = 1; x < width; x++)
-            {
-                if (binaryPixels[sampleRow, x] == currentValue)
-                {
-                    currentWidth++;
-                }
-                else
-                {
-                    stripeWidths.Add(currentWidth);
-                    currentWidth = 1;
-                    currentValue = binaryPixels[sampleRow, x];
-                }
-            }
-            stripeWidths.Add(currentWidth);
-            
-            if (stripeWidths.Count < 20) // 条形码至少有20条条纹
-            {
-                return false;
-            }
-            
-            // 计算条纹宽度的统计信息
-            double avgWidth = stripeWidths.Average();
-            double maxDeviation = stripeWidths.Max(w => Math.Abs(w - avgWidth));
-            
-            // 最大偏差不应超过平均宽度的3倍
-            if (avgWidth > 0 && maxDeviation > avgWidth * 3)
-            {
-                return false;
-            }
-            
-            // 检查是否有异常宽的条纹（可能是背景纹理）
-            int maxAllowedWidth = Math.Max(5, (int)(avgWidth * 2.5));
-            int tooWideStripes = stripeWidths.Count(w => w > maxAllowedWidth);
-            
-            // 异常宽条纹不应超过5%
-            if ((double)tooWideStripes / stripeWidths.Count > 0.05)
-            {
-                return false;
-            }
-            
-            return true;
-        }
-        
-        /// <summary>
-        /// 检查边缘锐利度
-        /// 条形码的边缘应该是锐利的（黑白转换应该是瞬间完成，而不是渐变）
-        /// </summary>
-        private bool CheckEdgeSharpness(int[,] binaryPixels, int height, int width)
-        {
-            // 检测连续行之间的边缘对齐度
-            if (height < 3) return true;
-            
-            int edgeAlignedCount = 0;
-            int totalEdges = 0;
-            
-            // 采样检测
-            for (int x = 1; x < width; x++)
-            {
-                // 检测是否是边缘（有黑白转换）
-                bool isEdge = false;
-                for (int y = 0; y < height; y++)
-                {
-                    if (binaryPixels[y, x] != binaryPixels[y, x - 1])
-                    {
-                        isEdge = true;
-                        break;
-                    }
-                }
-                
-                if (isEdge)
-                {
-                    totalEdges++;
-                    
-                    // 检查这个边缘在所有行上是否对齐
-                    int edgeOnRow = 0;
-                    for (int y = 0; y < height; y++)
-                    {
-                        if (binaryPixels[y, x] != binaryPixels[y, x - 1])
-                        {
-                            edgeOnRow++;
-                        }
-                    }
-                    
-                    // 如果80%以上的行在这个位置有边缘，说明边缘对齐良好
-                    if ((double)edgeOnRow / height > 0.8)
-                    {
-                        edgeAlignedCount++;
-                    }
-                }
-            }
-            
-            // 至少70%的边缘应该对齐良好
-            if (totalEdges > 0 && (double)edgeAlignedCount / totalEdges < 0.7)
-            {
-                return false;
-            }
-            
-            return true;
-        }
-        
-        /// <summary>
-        /// 分析图像关键区域是否存在条形码特征
-        /// </summary>
-        private bool AnalyzeKeyRegions(Bitmap bitmap)
-        {
-            int w = bitmap.Width;
-            int h = bitmap.Height;
-            
-            // 检查几个可能的条形码位置
-            // 右上角、左上角、顶部中央
-            var regions = new[]
-            {
-                new { startX = w / 2, endX = w - 1, startY = 0, endY = h / 3 },           // 右上角
-                new { startX = 0, endX = w / 2, startY = 0, endY = h / 3 },              // 左上角
-                new { startX = w / 4, endX = w * 3 / 4, startY = 0, endY = h / 4 },      // 顶部中央
-            };
-            
-            foreach (var region in regions)
-            {
-                if (AnalyzeBarcodeRegion(bitmap, region.startX, region.endX, region.startY, region.endY))
-                {
-                    return true;
-                }
-            }
-            
-            return false;
         }
         
         /// <summary>
