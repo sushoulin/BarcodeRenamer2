@@ -68,7 +68,16 @@ namespace BarcodeRenamer2
                                 var result = MultiThreadRecognition(highDpi);
                                 if (result != null && ValidateResult(result))
                                 {
-                                    return CreateSuccessResult(result);
+                                    // 关键：验证图像中是否真的存在条形码几何特征
+                                    // 防止ZXing在无条形码的图像上产生误识别
+                                    if (HasBarcodePattern(highDpi, result))
+                                    {
+                                        return CreateSuccessResult(result);
+                                    }
+                                    else
+                                    {
+                                        System.Diagnostics.Debug.WriteLine($"图像中未检测到条形码特征，可能是误识别: {result.Text}");
+                                    }
                                 }
                             }
                         }
@@ -352,6 +361,7 @@ namespace BarcodeRenamer2
         
         /// <summary>
         /// 验证识别结果的可靠性（增强版）
+        /// 关键：验证图像中是否真的存在条形码的几何特征（黑白条纹模式）
         /// </summary>
         private bool ValidateResult(Result result)
         {
@@ -482,6 +492,182 @@ namespace BarcodeRenamer2
             }
             
             return true;
+        }
+        
+        /// <summary>
+        /// 验证图像区域是否真的包含条形码特征（黑白条纹模式）
+        /// 这是防止误识别的关键：即使ZXing返回了结果，也要检查图像本身
+        /// </summary>
+        private bool HasBarcodePattern(Bitmap bitmap, Result result)
+        {
+            int w = bitmap.Width;
+            int h = bitmap.Height;
+            
+            // 如果有ResultPoints，分析识别区域
+            if (result.ResultPoints != null && result.ResultPoints.Length >= 2)
+            {
+                float minX = float.MaxValue, maxX = float.MinValue;
+                float minY = float.MaxValue, maxY = float.MinValue;
+                
+                foreach (var point in result.ResultPoints)
+                {
+                    if (point == null) continue;
+                    if (point.X < minX) minX = point.X;
+                    if (point.X > maxX) maxX = point.X;
+                    if (point.Y < minY) minY = point.Y;
+                    if (point.Y > maxY) maxY = point.Y;
+                }
+                
+                // 扩展检测区域（确保覆盖完整条形码）
+                int padding = 5;
+                int startX = Math.Max(0, (int)minX - padding);
+                int endX = Math.Min(w - 1, (int)maxX + padding);
+                int startY = Math.Max(0, (int)minY - padding);
+                int endY = Math.Min(h - 1, (int)maxY + padding);
+                
+                return AnalyzeBarcodeRegion(bitmap, startX, endX, startY, endY);
+            }
+            
+            // 没有ResultPoints，分析整个图像的关键区域
+            // 条形码通常在图像的某个角落或边缘
+            return AnalyzeKeyRegions(bitmap);
+        }
+        
+        /// <summary>
+        /// 分析指定区域是否包含条形码特征
+        /// </summary>
+        private bool AnalyzeBarcodeRegion(Bitmap bitmap, int startX, int endX, int startY, int endY)
+        {
+            int regionWidth = endX - startX + 1;
+            int regionHeight = endY - startY + 1;
+            
+            if (regionWidth < 50 || regionHeight < 10)
+            {
+                System.Diagnostics.Debug.WriteLine($"检测区域太小: {regionWidth}x{regionHeight}");
+                return false;
+            }
+            
+            // 转换为灰度并二值化
+            int threshold = 128;
+            int[,] binaryPixels = new int[regionHeight, regionWidth];
+            int blackCount = 0;
+            int whiteCount = 0;
+            
+            for (int y = startY; y <= endY; y++)
+            {
+                for (int x = startX; x <= endX; x++)
+                {
+                    var pixel = bitmap.GetPixel(x, y);
+                    int gray = (int)(pixel.R * 0.299 + pixel.G * 0.587 + pixel.B * 0.114);
+                    int binary = gray < threshold ? 0 : 1;
+                    binaryPixels[y - startY, x - startX] = binary;
+                    if (binary == 0) blackCount++;
+                    else whiteCount++;
+                }
+            }
+            
+            // 1. 检查黑白像素比例（条形码应该大致平衡，30%-70%黑色）
+            double blackRatio = (double)blackCount / (blackCount + whiteCount);
+            if (blackRatio < 0.15 || blackRatio > 0.85)
+            {
+                System.Diagnostics.Debug.WriteLine($"黑白像素比例不符合条形码特征: 黑色占比 {blackRatio:P1}");
+                return false;
+            }
+            
+            // 2. 检测条纹模式：分析每一行的黑白交替次数
+            // 条形码每一行都应该有密集的黑白交替
+            int validRows = 0;
+            int totalRows = regionHeight;
+            int minTransitions = 15; // 条形码至少有15次黑白交替（30条线）
+            
+            for (int y = 0; y < regionHeight; y++)
+            {
+                int transitions = 0;
+                for (int x = 1; x < regionWidth; x++)
+                {
+                    if (binaryPixels[y, x] != binaryPixels[y, x - 1])
+                    {
+                        transitions++;
+                    }
+                }
+                
+                // 条形码行应该有足够的黑白交替
+                if (transitions >= minTransitions)
+                {
+                    validRows++;
+                }
+            }
+            
+            // 至少80%的行应该有足够的条纹交替
+            double validRowRatio = (double)validRows / totalRows;
+            if (validRowRatio < 0.8)
+            {
+                System.Diagnostics.Debug.WriteLine($"条纹行比例不足: {validRows}/{totalRows} ({validRowRatio:P1})");
+                return false;
+            }
+            
+            // 3. 检测条纹的一致性：相邻行的条纹位置应该对齐
+            if (regionHeight >= 2)
+            {
+                int consistentPairs = 0;
+                int totalPairs = regionHeight - 1;
+                
+                for (int y = 0; y < regionHeight - 1; y++)
+                {
+                    int samePositions = 0;
+                    for (int x = 0; x < regionWidth; x++)
+                    {
+                        if (binaryPixels[y, x] == binaryPixels[y + 1, x])
+                        {
+                            samePositions++;
+                        }
+                    }
+                    
+                    double similarity = (double)samePositions / regionWidth;
+                    if (similarity > 0.7) // 70%相似度
+                    {
+                        consistentPairs++;
+                    }
+                }
+                
+                double consistency = (double)consistentPairs / totalPairs;
+                if (consistency < 0.7)
+                {
+                    System.Diagnostics.Debug.WriteLine($"条纹一致性不足: {consistency:P1}");
+                    return false;
+                }
+            }
+            
+            System.Diagnostics.Debug.WriteLine($"条形码特征验证通过: 黑色占比 {blackRatio:P1}, 有效行 {validRows}/{totalRows}");
+            return true;
+        }
+        
+        /// <summary>
+        /// 分析图像关键区域是否存在条形码特征
+        /// </summary>
+        private bool AnalyzeKeyRegions(Bitmap bitmap)
+        {
+            int w = bitmap.Width;
+            int h = bitmap.Height;
+            
+            // 检查几个可能的条形码位置
+            // 右上角、左上角、顶部中央
+            var regions = new[]
+            {
+                new { startX = w / 2, endX = w - 1, startY = 0, endY = h / 3 },           // 右上角
+                new { startX = 0, endX = w / 2, startY = 0, endY = h / 3 },              // 左上角
+                new { startX = w / 4, endX = w * 3 / 4, startY = 0, endY = h / 4 },      // 顶部中央
+            };
+            
+            foreach (var region in regions)
+            {
+                if (AnalyzeBarcodeRegion(bitmap, region.startX, region.endX, region.startY, region.endY))
+                {
+                    return true;
+                }
+            }
+            
+            return false;
         }
         
         /// <summary>
