@@ -147,24 +147,24 @@ namespace BarcodeRenamer2
         }
 
         /// <summary>
-        /// 去除顶部空白区域（增强版 - 多策略检测 + 噪点容忍）
+        /// 去除顶部空白区域（增强版 - 分块检测 + 噪点容忍）
         /// </summary>
         private Bitmap RemoveTopBlankArea(Bitmap original)
         {
             int w = original.Width;
             int h = original.Height;
             
-            // 策略1: 检测纯白色空白区域（250-255），容忍少量噪点
-            int firstNonBlankRow1 = DetectBlankWithNoiseTolerance(original, 250, w * 0.01); // 容忍1%噪点
+            // 策略1: 分块检测 - 每块高度为图片高度的0.5%，容忍少量噪点
+            int firstNonBlankRow1 = DetectBlankByBlock(original, 250, 0.005, 0.01); // 块高度0.5%，容忍1%噪点
             
-            // 策略2: 检测接近白色的空白区域（240-255），容忍少量噪点
-            int firstNonBlankRow2 = DetectBlankWithNoiseTolerance(original, 240, w * 0.02); // 容忍2%噪点
+            // 策略2: 分块检测 - 每块高度为图片高度的1%，容忍更多噪点
+            int firstNonBlankRow2 = DetectBlankByBlock(original, 240, 0.01, 0.02); // 块高度1%，容忍2%噪点
             
-            // 策略3: 检测浅灰色空白区域（230-255），容忍更多噪点
-            int firstNonBlankRow3 = DetectBlankWithNoiseTolerance(original, 230, w * 0.03); // 容忍3%噪点
+            // 策略3: 分块检测 - 每块高度为图片高度的2%，容忍更多噪点
+            int firstNonBlankRow3 = DetectBlankByBlock(original, 230, 0.02, 0.03); // 块高度2%，容忍3%噪点
             
-            // 策略4: 检测亮度（基于灰度值），容忍噪点
-            int firstNonBlankRow4 = DetectBlankByBrightnessWithNoiseTolerance(original, 240, w * 0.02);
+            // 策略4: 分块检测 - 基于亮度
+            int firstNonBlankRow4 = DetectBlankByBlockBrightness(original, 240, 0.01, 0.02); // 块高度1%，容忍2%噪点
             
             // 选择最小的非空白行（最激进的空白去除）
             // 忽略返回0的策略（表示未检测到空白）
@@ -203,31 +203,38 @@ namespace BarcodeRenamer2
         }
         
         /// <summary>
-        /// 通过阈值检测空白区域（带噪点容忍）
+        /// 分块检测空白区域（固定宽度，按高度比例分块）
         /// </summary>
-        private int DetectBlankWithNoiseTolerance(Bitmap bitmap, int threshold, double noiseTolerance)
+        private int DetectBlankByBlock(Bitmap bitmap, int threshold, double blockHeightPercent, double noiseTolerance)
         {
             int w = bitmap.Width;
             int h = bitmap.Height;
-            int maxNoisePixels = (int)(w * noiseTolerance); // 允许的噪点数量
+            int blockHeight = Math.Max(1, (int)(h * blockHeightPercent)); // 块高度
+            int maxNoisePixels = (int)(w * blockHeight * noiseTolerance); // 整个块的噪点容忍度
             
-            for (int y = 0; y < h; y++)
+            // 逐块扫描
+            for (int blockStart = 0; blockStart < h; blockStart += blockHeight)
             {
+                int blockEnd = Math.Min(blockStart + blockHeight, h);
                 int nonBlankPixels = 0;
-                for (int x = 0; x < w; x++)
+                
+                // 统计整个块的非空白像素
+                for (int y = blockStart; y < blockEnd; y++)
                 {
-                    var pixel = bitmap.GetPixel(x, y);
-                    // 检查像素是否接近白色（空白）
-                    if (pixel.R < threshold || pixel.G < threshold || pixel.B < threshold)
+                    for (int x = 0; x < w; x++)
                     {
-                        nonBlankPixels++;
+                        var pixel = bitmap.GetPixel(x, y);
+                        if (pixel.R < threshold || pixel.G < threshold || pixel.B < threshold)
+                        {
+                            nonBlankPixels++;
+                        }
                     }
                 }
                 
-                // 如果该行的非空白像素超过噪点容忍度，说明是内容行
+                // 如果该块的非空白像素超过噪点容忍度，说明是内容区域
                 if (nonBlankPixels > maxNoisePixels)
                 {
-                    return y;
+                    return blockStart; // 返回块的起始行
                 }
             }
             
@@ -235,34 +242,40 @@ namespace BarcodeRenamer2
         }
         
         /// <summary>
-        /// 通过亮度检测空白区域（带噪点容忍）
+        /// 分块检测空白区域（基于亮度）
         /// </summary>
-        private int DetectBlankByBrightnessWithNoiseTolerance(Bitmap bitmap, int brightnessThreshold, double noiseTolerance)
+        private int DetectBlankByBlockBrightness(Bitmap bitmap, int brightnessThreshold, double blockHeightPercent, double noiseTolerance)
         {
             int w = bitmap.Width;
             int h = bitmap.Height;
-            int maxNoisePixels = (int)(w * noiseTolerance); // 允许的噪点数量
+            int blockHeight = Math.Max(1, (int)(h * blockHeightPercent)); // 块高度
+            int maxNoisePixels = (int)(w * blockHeight * noiseTolerance); // 整个块的噪点容忍度
             
-            for (int y = 0; y < h; y++)
+            // 逐块扫描
+            for (int blockStart = 0; blockStart < h; blockStart += blockHeight)
             {
+                int blockEnd = Math.Min(blockStart + blockHeight, h);
                 int nonBlankPixels = 0;
-                for (int x = 0; x < w; x++)
+                
+                // 统计整个块的非空白像素
+                for (int y = blockStart; y < blockEnd; y++)
                 {
-                    var pixel = bitmap.GetPixel(x, y);
-                    // 计算亮度（灰度值）
-                    int brightness = (int)(pixel.R * 0.299 + pixel.G * 0.587 + pixel.B * 0.114);
-                    
-                    // 如果亮度较低，说明不是空白
-                    if (brightness < brightnessThreshold)
+                    for (int x = 0; x < w; x++)
                     {
-                        nonBlankPixels++;
+                        var pixel = bitmap.GetPixel(x, y);
+                        int brightness = (int)(pixel.R * 0.299 + pixel.G * 0.587 + pixel.B * 0.114);
+                        
+                        if (brightness < brightnessThreshold)
+                        {
+                            nonBlankPixels++;
+                        }
                     }
                 }
                 
-                // 如果该行的非空白像素超过噪点容忍度，说明是内容行
+                // 如果该块的非空白像素超过噪点容忍度，说明是内容区域
                 if (nonBlankPixels > maxNoisePixels)
                 {
-                    return y;
+                    return blockStart; // 返回块的起始行
                 }
             }
             
