@@ -109,10 +109,14 @@ namespace BarcodeRenamer2
 
             StatisticsUpdated?.Invoke(this, stats);
 
-            // 启动异步识别
-            if (!isRecognizing && pendingRecognitionQueue.Count > 0)
+            // 启动异步识别（如果队列有待识别文件且当前未在识别）
+            if (pendingRecognitionQueue.Count > 0)
             {
-                _ = StartAsyncRecognition();
+                if (!isRecognizing)
+                {
+                    _ = StartAsyncRecognition();
+                }
+                // 如果已经在识别中，新添加的文件会在队列中等待
             }
         }
 
@@ -147,6 +151,12 @@ namespace BarcodeRenamer2
         /// </summary>
         private async Task StartAsyncRecognition()
         {
+            // 防止重复启动
+            if (isRecognizing)
+            {
+                return;
+            }
+            
             isRecognizing = true;
             stopRequested = false;
 
@@ -166,6 +176,12 @@ namespace BarcodeRenamer2
             }
 
             isRecognizing = false;
+            
+            // 识别完成后，检查是否有新的待识别文件
+            if (pendingRecognitionQueue.Count > 0 && !stopRequested)
+            {
+                _ = StartAsyncRecognition();
+            }
         }
 
         /// <summary>

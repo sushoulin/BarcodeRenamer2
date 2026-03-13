@@ -351,7 +351,7 @@ namespace BarcodeRenamer2
         }
         
         /// <summary>
-        /// 验证识别结果的可靠性
+        /// 验证识别结果的可靠性（增强版）
         /// </summary>
         private bool ValidateResult(Result result)
         {
@@ -362,14 +362,14 @@ namespace BarcodeRenamer2
             
             string text = result.Text.Trim();
             
-            // 1. 检查识别内容的长度（大多数条形码长度在6-20之间）
-            if (text.Length < 6 || text.Length > 20)
+            // 1. 检查识别内容的长度（大多数条形码长度在8-20之间）
+            if (text.Length < 8 || text.Length > 20)
             {
                 System.Diagnostics.Debug.WriteLine($"识别结果长度不符合要求: {text} (长度: {text.Length})");
                 return false;
             }
             
-            // 2. 检查识别内容的字符组成（条形码通常是纯数字或字母数字组合）
+            // 2. 检查识别内容的字符组成（条形码通常是纯数字）
             int digitCount = 0;
             int letterCount = 0;
             int invalidCharCount = 0;
@@ -386,13 +386,12 @@ namespace BarcodeRenamer2
                 }
                 else if (c != '-' && c != ' ')
                 {
-                    // 条形码一般只包含字母、数字、短横线和空格
                     invalidCharCount++;
                 }
             }
             
-            // 条形码应该以数字为主
-            if (digitCount < text.Length * 0.5) // 数字占比至少50%
+            // 条形码应该绝大部分是数字（至少80%）
+            if (digitCount < text.Length * 0.8)
             {
                 System.Diagnostics.Debug.WriteLine($"识别结果数字占比不足: {text} (数字: {digitCount}/{text.Length})");
                 return false;
@@ -421,15 +420,22 @@ namespace BarcodeRenamer2
                 return false;
             }
             
-            // 4. 检查识别结果的置信度（如果有ResultPoints）
+            // 4. 检查是否是连续重复模式（如123123, ABCABC）
+            if (IsRepeatingPattern(text))
+            {
+                System.Diagnostics.Debug.WriteLine($"识别结果是重复模式: {text}");
+                return false;
+            }
+            
+            // 5. 检查识别结果的置信度（如果有ResultPoints）
             if (result.ResultPoints != null && result.ResultPoints.Length >= 2)
             {
-                // 检查识别区域的大小和形状
                 float minX = float.MaxValue, maxX = float.MinValue;
                 float minY = float.MaxValue, maxY = float.MinValue;
                 
                 foreach (var point in result.ResultPoints)
-                {                    if (point == null) continue;
+                {
+                    if (point == null) continue;
                     if (point.X < minX) minX = point.X;
                     if (point.X > maxX) maxX = point.X;
                     if (point.Y < minY) minY = point.Y;
@@ -476,6 +482,64 @@ namespace BarcodeRenamer2
             }
             
             return true;
+        }
+        
+        /// <summary>
+        /// 检查是否是重复模式（如123123, ABCABC）
+        /// </summary>
+        private bool IsRepeatingPattern(string text)
+        {
+            if (text.Length < 6) return false;
+            
+            // 检查2字符重复模式（如ABABAB）
+            if (text.Length >= 6 && text.Length % 2 == 0)
+            {
+                string pattern2 = text.Substring(0, 2);
+                bool isPattern2 = true;
+                for (int i = 2; i < text.Length; i += 2)
+                {
+                    if (text.Substring(i, 2) != pattern2)
+                    {
+                        isPattern2 = false;
+                        break;
+                    }
+                }
+                if (isPattern2) return true;
+            }
+            
+            // 检查3字符重复模式（如ABCABC）
+            if (text.Length >= 6 && text.Length % 3 == 0)
+            {
+                string pattern3 = text.Substring(0, 3);
+                bool isPattern3 = true;
+                for (int i = 3; i < text.Length; i += 3)
+                {
+                    if (text.Substring(i, 3) != pattern3)
+                    {
+                        isPattern3 = false;
+                        break;
+                    }
+                }
+                if (isPattern3) return true;
+            }
+            
+            // 检查4字符重复模式
+            if (text.Length >= 8 && text.Length % 4 == 0)
+            {
+                string pattern4 = text.Substring(0, 4);
+                bool isPattern4 = true;
+                for (int i = 4; i < text.Length; i += 4)
+                {
+                    if (text.Substring(i, 4) != pattern4)
+                    {
+                        isPattern4 = false;
+                        break;
+                    }
+                }
+                if (isPattern4) return true;
+            }
+            
+            return false;
         }
 
         /// <summary>
