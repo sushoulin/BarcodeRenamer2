@@ -13,6 +13,9 @@ namespace BarcodeRenamer2
         private System.Windows.Forms.Timer scanTimer;
         private ScanStatistics totalStats;
         
+        // 排序状态
+        private Dictionary<ListView, (int Column, bool Ascending)> sortStates = new Dictionary<ListView, (int, bool)>();
+
         // 系统托盘
         private NotifyIcon notifyIcon;
         private ContextMenuStrip trayContextMenu;
@@ -413,6 +416,9 @@ namespace BarcodeRenamer2
                 GridLines = true
             };
 
+            // 启用双缓冲以减少闪烁
+            lv.DoubleBuffered(true);
+
             lv.Columns.Add("文件名", 180);
             lv.Columns.Add("扫描路径", 200);
             lv.Columns.Add("输出路径", 200);
@@ -422,7 +428,44 @@ namespace BarcodeRenamer2
             lv.Columns.Add("条形码", 130);
             lv.Columns.Add("识别时间", 130);
 
+            // 添加列点击排序事件
+            lv.ColumnClick += ListView_ColumnClick;
+
             return lv;
+        }
+
+        /// <summary>
+        /// 列点击排序事件
+        /// </summary>
+        private void ListView_ColumnClick(object? sender, ColumnClickEventArgs e)
+        {
+            var lv = sender as ListView;
+            if (lv == null) return;
+
+            // 获取当前排序状态
+            if (!sortStates.ContainsKey(lv))
+            {
+                sortStates[lv] = (e.Column, true);
+            }
+            else
+            {
+                var current = sortStates[lv];
+                if (current.Column == e.Column)
+                {
+                    // 同一列，切换排序方向
+                    sortStates[lv] = (e.Column, !current.Ascending);
+                }
+                else
+                {
+                    // 不同列，默认正序
+                    sortStates[lv] = (e.Column, true);
+                }
+            }
+
+            // 执行排序
+            var sortInfo = sortStates[lv];
+            lv.ListViewItemSorter = new ListViewItemComparer(e.Column, sortInfo.Ascending);
+            lv.Sort();
         }
 
         /// <summary>
@@ -845,41 +888,34 @@ namespace BarcodeRenamer2
         }
 
         /// <summary>
-        /// 更新ListViewItem内容
+        /// 更新ListViewItem内容（无闪烁更新）
         /// </summary>
         private void UpdateFileListItem(ListViewItem item, FileItem fileItem)
         {
+            // 直接更新SubItems的文本，避免重建项目
             item.SubItems[0].Text = fileItem.FileName;
-            // 扫描路径：优先显示原始路径，如果没有则显示当前路径
             item.SubItems[1].Text = fileItem.OriginalFilePath ?? fileItem.FilePath;
-            item.SubItems[2].Text = fileItem.OutputFilePath ?? ""; // 输出路径
+            item.SubItems[2].Text = fileItem.OutputFilePath ?? "";
             item.SubItems[3].Text = fileItem.FormattedSize;
             item.SubItems[4].Text = fileItem.FileType;
             item.SubItems[5].Text = fileItem.StatusDescription;
             item.SubItems[6].Text = fileItem.BarcodeContent ?? "";
-            // 识别时间：如果是最小值则显示空
             item.SubItems[7].Text = fileItem.RecognitionTime != DateTime.MinValue ?
                 fileItem.RecognitionTime.ToString("yyyy-MM-dd HH:mm:ss") : "";
 
-            if (fileItem.Status == RecognitionStatus.Success)
+            // 更新背景颜色
+            Color newColor = fileItem.Status switch
             {
-                item.BackColor = Color.LightGreen;
-            }
-            else if (fileItem.Status == RecognitionStatus.Manual)
+                RecognitionStatus.Success => Color.LightGreen,
+                RecognitionStatus.Manual => Color.LightYellow,
+                RecognitionStatus.Failed => Color.LightPink,
+                RecognitionStatus.Recognizing => Color.LightBlue,
+                _ => Color.White
+            };
+            
+            if (item.BackColor != newColor)
             {
-                item.BackColor = Color.LightYellow;
-            }
-            else if (fileItem.Status == RecognitionStatus.Failed)
-            {
-                item.BackColor = Color.LightPink;
-            }
-            else if (fileItem.Status == RecognitionStatus.Recognizing)
-            {
-                item.BackColor = Color.LightBlue;
-            }
-            else if (fileItem.Status == RecognitionStatus.Pending)
-            {
-                item.BackColor = Color.White;
+                item.BackColor = newColor;
             }
         }
 
@@ -1315,6 +1351,59 @@ namespace BarcodeRenamer2
                 }
                 base.OnFormClosing(e);
             }
+        }
+    }
+
+    /// <summary>
+    /// ListViewItem 比较器（用于排序）
+    /// </summary>
+    public class ListViewItemComparer : System.Collections.IComparer
+    {
+        private readonly int column;
+        private readonly bool ascending;
+
+        public ListViewItemComparer(int column, bool ascending)
+        {
+            this.column = column;
+            this.ascending = ascending;
+        }
+
+        public int Compare(object? x, object? y)
+        {
+            if (x is not ListViewItem itemX || y is not ListViewItem itemY)
+                return 0;
+
+            // 获取比较值
+            string textX = column < itemX.SubItems.Count ? itemX.SubItems[column].Text : "";
+            string textY = column < itemY.SubItems.Count ? itemY.SubItems[column].Text : "";
+
+            // 特殊处理：识别时间列按日期排序
+            if (column == 7)
+            {
+                DateTime dateX, dateY;
+                if (DateTime.TryParse(textX, out dateX) && DateTime.TryParse(textY, out dateY))
+                {
+                    return ascending ? dateX.CompareTo(dateY) : dateY.CompareTo(dateX);
+                }
+            }
+
+            // 默认字符串比较
+            int result = string.Compare(textX, textY, StringComparison.OrdinalIgnoreCase);
+            return ascending ? result : -result;
+        }
+    }
+
+    /// <summary>
+    /// ListView 双缓冲扩展
+    /// </summary>
+    public static class ListViewExtensions
+    {
+        public static void DoubleBuffered(this ListView lv, bool enabled)
+        {
+            var prop = typeof(Control).GetProperty("DoubleBuffered", 
+                System.Reflection.BindingFlags.NonPublic | 
+                System.Reflection.BindingFlags.Instance);
+            prop?.SetValue(lv, enabled, null);
         }
     }
 }
