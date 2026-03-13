@@ -24,6 +24,7 @@ namespace BarcodeRenamer2
         private Button btnStartScan;
         private Button btnStopScan;
         private Button btnScanOnce;
+        private Button btnRefresh;
 
         private GroupBox grpStatistics;
         private Label lblTotalCount;
@@ -168,8 +169,18 @@ namespace BarcodeRenamer2
                 FlatStyle = FlatStyle.Flat
             };
 
+            btnRefresh = new Button
+            {
+                Text = "刷新列表",
+                Location = new Point(460, 25),
+                Size = new Size(100, 35),
+                BackColor = Color.FromArgb(108, 117, 125),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat
+            };
+
             grpControl.Controls.AddRange(new Control[] {
-                btnStartScan, btnStopScan, btnScanOnce
+                btnStartScan, btnStopScan, btnScanOnce, btnRefresh
             });
 
             // 统计区域
@@ -370,6 +381,11 @@ namespace BarcodeRenamer2
                 PerformScan();
             };
 
+            btnRefresh.Click += (s, e) =>
+            {
+                RefreshFileList();
+            };
+
             btnManualReview.Click += (s, e) =>
             {
                 if (lstFiles.SelectedItems.Count > 0)
@@ -516,7 +532,9 @@ namespace BarcodeRenamer2
             item.SubItems.Add(fileItem.FileType);
             item.SubItems.Add(fileItem.StatusDescription);
             item.SubItems.Add(fileItem.BarcodeContent ?? "");
-            item.SubItems.Add(fileItem.RecognitionTime.ToString("yyyy-MM-dd HH:mm:ss"));
+            // 识别时间：如果是最小值则显示空
+            item.SubItems.Add(fileItem.RecognitionTime != DateTime.MinValue ?
+                fileItem.RecognitionTime.ToString("yyyy-MM-dd HH:mm:ss") : "");
             item.Tag = fileItem;
 
             // 根据状态设置颜色
@@ -550,7 +568,9 @@ namespace BarcodeRenamer2
             item.SubItems[4].Text = fileItem.FileType;
             item.SubItems[5].Text = fileItem.StatusDescription;
             item.SubItems[6].Text = fileItem.BarcodeContent ?? "";
-            item.SubItems[7].Text = fileItem.RecognitionTime.ToString("yyyy-MM-dd HH:mm:ss");
+            // 识别时间：如果是最小值则显示空
+            item.SubItems[7].Text = fileItem.RecognitionTime != DateTime.MinValue ?
+                fileItem.RecognitionTime.ToString("yyyy-MM-dd HH:mm:ss") : "";
 
             if (fileItem.Status == RecognitionStatus.Success)
             {
@@ -624,6 +644,35 @@ namespace BarcodeRenamer2
             }
 
             UpdateStatistics();
+
+            // 自动刷新列表（每识别完一个文件刷新一次）
+            RefreshFileList();
+        }
+
+        /// <summary>
+        /// 刷新文件列表显示
+        /// </summary>
+        private void RefreshFileList()
+        {
+            // 暂停绘制以提高性能
+            lstFiles.BeginUpdate();
+
+            try
+            {
+                // 更新所有项目的显示
+                foreach (ListViewItem item in lstFiles.Items)
+                {
+                    if (item.Tag is FileItem fileItem)
+                    {
+                        UpdateFileListItem(item, fileItem);
+                    }
+                }
+            }
+            finally
+            {
+                // 恢复绘制
+                lstFiles.EndUpdate();
+            }
         }
     }
 }
