@@ -655,7 +655,7 @@ namespace BarcodeRenamer2
 
             UpdateStatistics();
         }
-        }
+       
 
         /// <summary>
         /// 刷新文件列表显示
