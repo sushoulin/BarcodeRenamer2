@@ -27,6 +27,21 @@ namespace BarcodeRenamer2
             this.recognitionService = new BarcodeRecognitionService();
             this.processedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             this.pendingRecognitionQueue = new Queue<FileItem>();
+            
+            // 设置裁剪图片输出文件夹
+            UpdateCropOutputFolder();
+        }
+
+        /// <summary>
+        /// 更新裁剪图片输出文件夹
+        /// </summary>
+        public void UpdateCropOutputFolder()
+        {
+            if (!string.IsNullOrEmpty(config.OutputFolder))
+            {
+                string cropFolder = Path.Combine(config.OutputFolder, "裁剪");
+                recognitionService.SetCropOutputFolder(cropFolder);
+            }
         }
 
         /// <summary>

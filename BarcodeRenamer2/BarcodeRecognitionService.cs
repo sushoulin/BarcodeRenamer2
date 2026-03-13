@@ -4,7 +4,6 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
-using System.Threading.Tasks;
 using ZXing;
 using ZXing.Windows.Compatibility;
 using Emgu.CV;
@@ -20,6 +19,7 @@ namespace BarcodeRenamer2
     public class BarcodeRecognitionService
     {
         private readonly BarcodeReader reader;
+        private string cropOutputFolder;
 
         public BarcodeRecognitionService()
         {
@@ -50,6 +50,18 @@ namespace BarcodeRenamer2
         }
 
         /// <summary>
+        /// 设置裁剪图片输出文件夹
+        /// </summary>
+        public void SetCropOutputFolder(string folder)
+        {
+            cropOutputFolder = folder;
+            if (!string.IsNullOrEmpty(folder) && !Directory.Exists(folder))
+            {
+                Directory.CreateDirectory(folder);
+            }
+        }
+
+        /// <summary>
         /// 识别图片中的条形码
         /// 流程：Emgu CV检测条形码位置 -> 截取区域 -> ZXing识别内容
         /// </summary>
@@ -72,7 +84,19 @@ namespace BarcodeRenamer2
                             
                             if (barcodeRegions.Count == 0)
                             {
-                                System.Diagnostics.Debug.WriteLine("Emgu CV未检测到条形码区域");
+                                System.Diagnostics.Debug.WriteLine("Emgu CV未检测到条形码区域，尝试全图识别");
+                                
+                                // 如果Emgu CV没检测到，尝试直接用ZXing识别
+                                using (var highDpi = SetHighDPI(cropped, 400))
+                                {
+                                    var result = reader.Decode(highDpi);
+                                    if (result != null && ValidateResult(result))
+                                    {
+                                        System.Diagnostics.Debug.WriteLine($"ZXing直接识别成功: {result.Text}");
+                                        return CreateSuccessResult(result);
+                                    }
+                                }
+                                
                                 return new RecognitionResult
                                 {
                                     Success = false,
@@ -81,10 +105,13 @@ namespace BarcodeRenamer2
                             }
 
                             // 对每个检测到的区域尝试识别
+                            int regionIndex = 0;
                             foreach (var region in barcodeRegions)
                             {
+                                regionIndex++;
+                                
                                 // 扩展区域边界（确保完整条形码）
-                                int padding = 5;
+                                int padding = 10;
                                 int x = Math.Max(0, region.X - padding);
                                 int y = Math.Max(0, region.Y - padding);
                                 int width = Math.Min(cropped.Width - x, region.Width + padding * 2);
@@ -93,6 +120,9 @@ namespace BarcodeRenamer2
                                 // 裁剪条形码区域
                                 using (var barcodeImage = CropRegion(cropped, x, y, width, height))
                                 {
+                                    // 保存裁剪图片
+                                    SaveCropImage(barcodeImage, Path.GetFileNameWithoutExtension(imagePath), regionIndex);
+                                    
                                     // 调整DPI到400
                                     using (var highDpi = SetHighDPI(barcodeImage, 400))
                                     {
@@ -130,6 +160,27 @@ namespace BarcodeRenamer2
         }
 
         /// <summary>
+        /// 保存裁剪图片到指定文件夹
+        /// </summary>
+        private void SaveCropImage(Bitmap cropImage, string originalFileName, int regionIndex)
+        {
+            if (string.IsNullOrEmpty(cropOutputFolder))
+                return;
+
+            try
+            {
+                string fileName = $"{originalFileName}_crop_{regionIndex}_{DateTime.Now:yyyyMMdd_HHmmss}.png";
+                string filePath = Path.Combine(cropOutputFolder, fileName);
+                cropImage.Save(filePath, ImageFormat.Png);
+                System.Diagnostics.Debug.WriteLine($"裁剪图片已保存: {filePath}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"保存裁剪图片失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// 使用Emgu CV检测条形码区域
         /// 原理：条形码具有密集的黑白条纹，通过形态学操作可以检测
         /// </summary>
@@ -139,89 +190,76 @@ namespace BarcodeRenamer2
 
             try
             {
-                // 转换为Emgu CV格式
-                // 转换为Emgu CV格式
                 Mat mat = null;
                 try
                 {
                     mat = BitmapToMat(bitmap);
                     using (var gray = new Mat())
+                    using (var gradX = new Mat())
+                    using (var gradY = new Mat())
                     using (var gradient = new Mat())
                     using (var blurred = new Mat())
-                    using (var threshold = new Mat())
+                    using (var thresh = new Mat())
                     using (var closed = new Mat())
-                    using (var eroded = new Mat())
-                    using (var dilated = new Mat())
                     {
                         // 1. 转换为灰度图
                         CvInvoke.CvtColor(mat, gray, ColorConversion.Bgr2Gray);
 
-                        // 2. 计算梯度（Scharr算子）- 突出条形码的条纹特征
-                        using (var gradX = new Mat())
-                        using (var gradY = new Mat())
-                        {
-                            CvInvoke.Scharr(gray, gradX, DepthType.Cv16S, 1, 0);
-                            CvInvoke.Scharr(gray, gradY, DepthType.Cv16S, 0, 1);
-                            
-                            // 取绝对值
-                            CvInvoke.ConvertScaleAbs(gradX, gradX, 1, 0);
-                            CvInvoke.ConvertScaleAbs(gradY, gradY, 1, 0);
-                            
-                            // 水平梯度减去垂直梯度（条形码水平条纹更明显）
-                            CvInvoke.Subtract(gradX, gradY, gradient);
-                            CvInvoke.ConvertScaleAbs(gradient, gradient, 1, 0);
-                        }
+                        // 2. 使用Scharr算子计算梯度
+                        CvInvoke.Scharr(gray, gradX, DepthType.Cv16S, 1, 0);
+                        CvInvoke.Scharr(gray, gradY, DepthType.Cv16S, 0, 1);
+                        
+                        // 取绝对值并转换
+                        CvInvoke.ConvertScaleAbs(gradX, gradX, 1, 0);
+                        CvInvoke.ConvertScaleAbs(gradY, gradY, 1, 0);
+                        
+                        // 水平梯度减去垂直梯度
+                        CvInvoke.Subtract(gradX, gradY, gradient);
+                        CvInvoke.ConvertScaleAbs(gradient, gradient, 1, 0);
 
-                        // 3. 高斯模糊 - 平滑噪声
+                        // 3. 高斯模糊
                         CvInvoke.GaussianBlur(gradient, blurred, new Size(9, 9), 0);
 
-                        // 4. 二值化
-                        CvInvoke.Threshold(blurred, threshold, 225, 255, ThresholdType.Binary);
+                        // 4. 二值化 - 降低阈值使其更容易检测
+                        CvInvoke.Threshold(blurred, thresh, 200, 255, ThresholdType.Binary);
 
-                        // 5. 形态学操作 - 连接条形码区域
-                        // 创建水平核（条形码通常是水平的）
-                        using (var kernel = CvInvoke.GetStructuringElement(ElementShape.Rectangle, new Size(21, 7), new Point(-1, -1)))
+                        // 5. 形态学闭操作 - 使用更小的核
+                        using (var kernel = CvInvoke.GetStructuringElement(ElementShape.Rectangle, new Size(15, 5), new Point(-1, -1)))
                         {
-                            CvInvoke.MorphologyEx(threshold, closed, MorphOp.Close, kernel, new Point(-1, -1), 4, BorderType.Default, new MCvScalar());
+                            CvInvoke.MorphologyEx(thresh, closed, MorphOp.Close, kernel, new Point(-1, -1), 3, BorderType.Default, new MCvScalar());
                         }
 
-                        // 6. 腐蚀和膨胀 - 去除小噪点
-                        CvInvoke.Erode(closed, eroded, null, new Point(-1, -1), 4, BorderType.Default, new MCvScalar());
-                        CvInvoke.Dilate(eroded, dilated, null, new Point(-1, -1), 4, BorderType.Default, new MCvScalar());
+                        // 6. 腐蚀和膨胀
+                        CvInvoke.Erode(closed, closed, null, new Point(-1, -1), 2, BorderType.Default, new MCvScalar());
+                        CvInvoke.Dilate(closed, closed, null, new Point(-1, -1), 2, BorderType.Default, new MCvScalar());
 
-                    // 7. 查找轮廓
-                    using (var contours = new VectorOfVectorOfPoint())
-                    {
-                        CvInvoke.FindContours(dilated, contours, null, RetrType.External, ChainApproxMethod.ChainApproxSimple);
-
-                        for (int i = 0; i < contours.Size; i++)
+                        // 7. 查找轮廓
+                        using (var contours = new VectorOfVectorOfPoint())
                         {
-                            var contour = contours[i];
-                            var rect = CvInvoke.BoundingRectangle(contour);
+                            CvInvoke.FindContours(closed, contours, null, RetrType.External, ChainApproxMethod.ChainApproxSimple);
 
-                            // 过滤太小的区域
-                            if (rect.Width < 80 || rect.Height < 15)
-                                continue;
+                            for (int i = 0; i < contours.Size; i++)
+                            {
+                                var contour = contours[i];
+                                var rect = CvInvoke.BoundingRectangle(contour);
 
-                            // 过滤太长的区域（宽度不应超过高度的20倍）
-                            if (rect.Width > rect.Height * 25)
-                                continue;
+                                // 放宽过滤条件
+                                // 最小宽度40，最小高度10
+                                if (rect.Width < 40 || rect.Height < 10)
+                                    continue;
 
-                            // 过滤太高的区域（高度不应超过宽度的1/2）
-                            if (rect.Height > rect.Width / 2)
-                                continue;
+                                // 宽度不应超过高度的30倍
+                                if (rect.Height > 0 && rect.Width > rect.Height * 30)
+                                    continue;
 
-                            // 计算区域的纵横比
-                            double aspectRatio = (double)rect.Width / rect.Height;
-                            
-                            // 条形码纵横比通常在2到15之间
-                            if (aspectRatio < 2 || aspectRatio > 15)
-                                continue;
+                                // 高度不应超过宽度
+                                if (rect.Height > rect.Width)
+                                    continue;
 
-                            regions.Add(rect);
-                            System.Diagnostics.Debug.WriteLine($"检测到候选条形码区域: {rect}");
+                                regions.Add(rect);
+                                System.Diagnostics.Debug.WriteLine($"检测到候选条形码区域: X={rect.X}, Y={rect.Y}, W={rect.Width}, H={rect.Height}");
+                            }
                         }
-                    }
                     }
                 }
                 finally
@@ -234,7 +272,8 @@ namespace BarcodeRenamer2
                 System.Diagnostics.Debug.WriteLine($"Emgu CV检测异常: {ex.Message}");
             }
 
-            return regions;
+            // 按宽度排序，优先选择更宽的区域（条形码通常较宽）
+            return regions.OrderByDescending(r => r.Width).ToList();
         }
 
         /// <summary>
@@ -242,7 +281,6 @@ namespace BarcodeRenamer2
         /// </summary>
         private Mat BitmapToMat(Bitmap bitmap)
         {
-            // 确保像素格式正确
             Bitmap workBitmap = bitmap;
             bool needDispose = false;
             
@@ -260,7 +298,6 @@ namespace BarcodeRenamer2
             
             try
             {
-                // 使用 ImageConverter 转换
                 var converter = new ImageConverter();
                 var bytes = (byte[])converter.ConvertTo(workBitmap, typeof(byte[]));
                 
@@ -283,7 +320,6 @@ namespace BarcodeRenamer2
         /// </summary>
         private Bitmap CropRegion(Bitmap original, int x, int y, int width, int height)
         {
-            // 确保不超出边界
             x = Math.Max(0, Math.Min(x, original.Width - 1));
             y = Math.Max(0, Math.Min(y, original.Height - 1));
             width = Math.Min(width, original.Width - x);
@@ -450,7 +486,7 @@ namespace BarcodeRenamer2
             string text = result.Text.Trim();
             
             // 检查长度
-            if (text.Length < 8 || text.Length > 20)
+            if (text.Length < 6 || text.Length > 30)
             {
                 System.Diagnostics.Debug.WriteLine($"识别结果长度不符合要求: {text}");
                 return false;
@@ -458,7 +494,7 @@ namespace BarcodeRenamer2
             
             // 检查数字占比
             int digitCount = text.Count(c => char.IsDigit(c));
-            if (digitCount < text.Length * 0.8)
+            if (digitCount < text.Length * 0.6)
             {
                 System.Diagnostics.Debug.WriteLine($"识别结果数字占比不足: {text}");
                 return false;
@@ -471,13 +507,6 @@ namespace BarcodeRenamer2
                 return false;
             }
             
-            // 检查重复模式
-            if (IsRepeatingPattern(text))
-            {
-                System.Diagnostics.Debug.WriteLine($"识别结果是重复模式: {text}");
-                return false;
-            }
-            
             return true;
         }
         
@@ -485,7 +514,6 @@ namespace BarcodeRenamer2
         {
             if (text.Length < 6) return false;
             
-            // 检查2字符重复模式
             if (text.Length >= 6 && text.Length % 2 == 0)
             {
                 string pattern2 = text.Substring(0, 2);
@@ -501,7 +529,6 @@ namespace BarcodeRenamer2
                 if (isPattern2) return true;
             }
             
-            // 检查3字符重复模式
             if (text.Length >= 6 && text.Length % 3 == 0)
             {
                 string pattern3 = text.Substring(0, 3);
