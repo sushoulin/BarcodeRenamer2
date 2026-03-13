@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
 using System.IO;
@@ -37,8 +38,17 @@ namespace BarcodeRenamer2
         private Label lblManualCount;
 
         private GroupBox grpFileList;
+        private TabControl tabFileFilter;
+        private TabPage tabAll;
+        private TabPage tabSuccess;
+        private TabPage tabFailed;
         private ListView lstFiles;
+        private ListView lstSuccessFiles;
+        private ListView lstFailedFiles;
         private Button btnManualReview;
+        
+        // 文件列表数据源
+        private List<FileItem> allFiles = new List<FileItem>();
 
         private StatusStrip statusStrip;
         private ToolStripStatusLabel lblStatus;
@@ -260,24 +270,36 @@ namespace BarcodeRenamer2
                 Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right
             };
 
-            lstFiles = new ListView
+            // 创建选项卡
+            tabFileFilter = new TabControl
             {
-                Location = new Point(10, 25),
-                Size = new Size(940, 320),
-                View = View.Details,
-                FullRowSelect = true,
-                GridLines = true,
+                Location = new Point(10, 20),
+                Size = new Size(940, 330),
                 Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right
             };
 
-            lstFiles.Columns.Add("文件名", 180);
-            lstFiles.Columns.Add("扫描路径", 200);
-            lstFiles.Columns.Add("输出路径", 200);
-            lstFiles.Columns.Add("大小", 70);
-            lstFiles.Columns.Add("类型", 50);
-            lstFiles.Columns.Add("状态", 80);
-            lstFiles.Columns.Add("条形码", 130);
-            lstFiles.Columns.Add("识别时间", 130);
+            // 全部选项卡
+            tabAll = new TabPage("全部 (0)");
+            tabSuccess = new TabPage("成功 (0)");
+            tabFailed = new TabPage("失败 (0)");
+
+            // 创建三个ListView
+            lstFiles = CreateListView();
+            lstSuccessFiles = CreateListView();
+            lstFailedFiles = CreateListView();
+
+            tabAll.Controls.Add(lstFiles);
+            tabSuccess.Controls.Add(lstSuccessFiles);
+            tabFailed.Controls.Add(lstFailedFiles);
+
+            tabFileFilter.TabPages.Add(tabAll);
+            tabFileFilter.TabPages.Add(tabSuccess);
+            tabFileFilter.TabPages.Add(tabFailed);
+
+            // 双击预览事件
+            lstFiles.DoubleClick += LstFiles_DoubleClick;
+            lstSuccessFiles.DoubleClick += LstFiles_DoubleClick;
+            lstFailedFiles.DoubleClick += LstFiles_DoubleClick;
 
             btnManualReview = new Button
             {
@@ -287,42 +309,8 @@ namespace BarcodeRenamer2
                 Anchor = AnchorStyles.Bottom | AnchorStyles.Left
             };
 
-            // 添加双击预览事件
-            lstFiles.DoubleClick += (s, e) =>
-            {
-                if (lstFiles.SelectedItems.Count > 0)
-                {
-                    var item = lstFiles.SelectedItems[0];
-                    var fileItem = item.Tag as FileItem;
-                    if (fileItem != null)
-                    {
-                        // 优先打开输出路径，其次打开原始路径
-                        string filePath = fileItem.OutputFilePath ?? fileItem.FilePath;
-                        if (System.IO.File.Exists(filePath))
-                        {
-                            try
-                            {
-                                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                                {
-                                    FileName = filePath,
-                                    UseShellExecute = true
-                                });
-                            }
-                            catch (Exception ex)
-                            {
-                                MessageBox.Show($"无法打开文件: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                            }
-                        }
-                        else
-                        {
-                            MessageBox.Show("文件不存在", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                        }
-                    }
-                }
-            };
-
             grpFileList.Controls.AddRange(new Control[] {
-                lstFiles, btnManualReview
+                tabFileFilter, btnManualReview
             });
 
             // 状态栏
@@ -340,6 +328,82 @@ namespace BarcodeRenamer2
 
             // 初始化定时器
             scanTimer = new System.Windows.Forms.Timer();
+        }
+
+        /// <summary>
+        /// 创建ListView控件（统一配置）
+        /// </summary>
+        private ListView CreateListView()
+        {
+            var lv = new ListView
+            {
+                Dock = DockStyle.Fill,
+                View = View.Details,
+                FullRowSelect = true,
+                GridLines = true
+            };
+
+            lv.Columns.Add("文件名", 180);
+            lv.Columns.Add("扫描路径", 200);
+            lv.Columns.Add("输出路径", 200);
+            lv.Columns.Add("大小", 70);
+            lv.Columns.Add("类型", 50);
+            lv.Columns.Add("状态", 80);
+            lv.Columns.Add("条形码", 130);
+            lv.Columns.Add("识别时间", 130);
+
+            return lv;
+        }
+
+        /// <summary>
+        /// 双击预览文件
+        /// </summary>
+        private void LstFiles_DoubleClick(object sender, EventArgs e)
+        {
+            var lv = sender as ListView;
+            if (lv != null && lv.SelectedItems.Count > 0)
+            {
+                var item = lv.SelectedItems[0];
+                var fileItem = item.Tag as FileItem;
+                if (fileItem != null)
+                {
+                    // 优先打开输出路径，其次打开原始路径
+                    string filePath = fileItem.OutputFilePath ?? fileItem.FilePath;
+                    if (System.IO.File.Exists(filePath))
+                    {
+                        try
+                        {
+                            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                            {
+                                FileName = filePath,
+                                UseShellExecute = true
+                            });
+                        }
+                        catch (Exception ex)
+                        {
+                            MessageBox.Show($"无法打开文件: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        }
+                    }
+                    else
+                    {
+                        MessageBox.Show("文件不存在", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// 获取当前选中的ListView
+        /// </summary>
+        private ListView GetCurrentListView()
+        {
+            if (tabFileFilter.SelectedTab == tabAll)
+                return lstFiles;
+            else if (tabFileFilter.SelectedTab == tabSuccess)
+                return lstSuccessFiles;
+            else if (tabFileFilter.SelectedTab == tabFailed)
+                return lstFailedFiles;
+            return lstFiles;
         }
 
         private void LoadConfigToUI()
@@ -411,9 +475,10 @@ namespace BarcodeRenamer2
 
             btnManualReview.Click += (s, e) =>
             {
-                if (lstFiles.SelectedItems.Count > 0)
+                var currentLv = GetCurrentListView();
+                if (currentLv.SelectedItems.Count > 0)
                 {
-                    var item = lstFiles.SelectedItems[0];
+                    var item = currentLv.SelectedItems[0];
                     var fileItem = item.Tag as FileItem;
                     if (fileItem != null)
                     {
@@ -435,7 +500,8 @@ namespace BarcodeRenamer2
                                 }
                                 totalStats.ManualCount++;
                             }
-                            UpdateFileListItem(item, fi);
+                            // 更新所有列表中的文件项
+                            UpdateFileItemInAllLists(fi);
                             UpdateStatistics();
                         }))
                         {
@@ -546,7 +612,10 @@ namespace BarcodeRenamer2
             lblStatus.Text = $"扫描完成 {DateTime.Now:HH:mm:ss}";
         }
 
-        private void AddFileToList(FileItem fileItem)
+        /// <summary>
+        /// 创建ListViewItem
+        /// </summary>
+        private ListViewItem CreateListViewItem(FileItem fileItem)
         {
             var item = new ListViewItem(fileItem.FileName);
             // 扫描路径：优先显示原始路径，如果没有则显示当前路径
@@ -579,9 +648,37 @@ namespace BarcodeRenamer2
                 item.BackColor = Color.LightBlue;
             }
 
-            lstFiles.Items.Insert(0, item);
+            return item;
         }
 
+        /// <summary>
+        /// 添加文件到列表（同时更新三个列表和选项卡标题）
+        /// </summary>
+        private void AddFileToList(FileItem fileItem)
+        {
+            // 添加到全部列表
+            var item = CreateListViewItem(fileItem);
+            lstFiles.Items.Insert(0, item);
+
+            // 根据状态添加到对应列表
+            if (fileItem.Status == RecognitionStatus.Success || fileItem.Status == RecognitionStatus.Manual)
+            {
+                var successItem = CreateListViewItem(fileItem);
+                lstSuccessFiles.Items.Insert(0, successItem);
+            }
+            else if (fileItem.Status == RecognitionStatus.Failed)
+            {
+                var failedItem = CreateListViewItem(fileItem);
+                lstFailedFiles.Items.Insert(0, failedItem);
+            }
+
+            // 更新选项卡标题
+            UpdateTabTitles();
+        }
+
+        /// <summary>
+        /// 更新ListViewItem内容
+        /// </summary>
         private void UpdateFileListItem(ListViewItem item, FileItem fileItem)
         {
             item.SubItems[0].Text = fileItem.FileName;
@@ -618,6 +715,16 @@ namespace BarcodeRenamer2
             }
         }
 
+        /// <summary>
+        /// 更新选项卡标题
+        /// </summary>
+        private void UpdateTabTitles()
+        {
+            tabAll.Text = $"全部 ({lstFiles.Items.Count})";
+            tabSuccess.Text = $"成功 ({lstSuccessFiles.Items.Count})";
+            tabFailed.Text = $"失败 ({lstFailedFiles.Items.Count})";
+        }
+
         private void UpdateStatistics()
         {
             lblTotalCount.Text = $"扫描总数: {totalStats.TotalCount}";
@@ -627,37 +734,126 @@ namespace BarcodeRenamer2
         }
 
         /// <summary>
-        /// 更新列表中的文件项（异步识别后）
+        /// 更新所有列表中的文件项（异步识别后）
         /// </summary>
         private void UpdateFileItemInList(FileItem fileItem)
         {
             // 暂停绘制以避免闪烁
             lstFiles.BeginUpdate();
+            lstSuccessFiles.BeginUpdate();
+            lstFailedFiles.BeginUpdate();
             try
             {
-                // 查找对应的 ListViewItem
+                // 在全部列表中查找并更新
+                bool foundInSuccess = false;
+                bool foundInFailed = false;
+
                 foreach (ListViewItem item in lstFiles.Items)
                 {
                     if (item.Tag is FileItem itemFile)
                     {
-                        // 使用OriginalFilePath进行匹配，如果为空则使用FilePath
                         string itemPath = itemFile.OriginalFilePath ?? itemFile.FilePath;
                         string targetPath = fileItem.OriginalFilePath ?? fileItem.FilePath;
                         
                         if (itemPath == targetPath)
                         {
                             UpdateFileListItem(item, fileItem);
-                            // 更新Tag为最新的fileItem
                             item.Tag = fileItem;
                             break;
                         }
                     }
                 }
+
+                // 在成功列表中查找
+                foreach (ListViewItem item in lstSuccessFiles.Items)
+                {
+                    if (item.Tag is FileItem itemFile)
+                    {
+                        string itemPath = itemFile.OriginalFilePath ?? itemFile.FilePath;
+                        string targetPath = fileItem.OriginalFilePath ?? fileItem.FilePath;
+                        
+                        if (itemPath == targetPath)
+                        {
+                            foundInSuccess = true;
+                            // 如果状态变成失败，需要从成功列表移除
+                            if (fileItem.Status == RecognitionStatus.Failed)
+                            {
+                                lstSuccessFiles.Items.Remove(item);
+                                // 添加到失败列表
+                                var failedItem = CreateListViewItem(fileItem);
+                                lstFailedFiles.Items.Insert(0, failedItem);
+                            }
+                            else
+                            {
+                                UpdateFileListItem(item, fileItem);
+                                item.Tag = fileItem;
+                            }
+                            break;
+                        }
+                    }
+                }
+
+                // 在失败列表中查找
+                foreach (ListViewItem item in lstFailedFiles.Items)
+                {
+                    if (item.Tag is FileItem itemFile)
+                    {
+                        string itemPath = itemFile.OriginalFilePath ?? itemFile.FilePath;
+                        string targetPath = fileItem.OriginalFilePath ?? fileItem.FilePath;
+                        
+                        if (itemPath == targetPath)
+                        {
+                            foundInFailed = true;
+                            // 如果状态变成成功，需要从失败列表移除
+                            if (fileItem.Status == RecognitionStatus.Success || fileItem.Status == RecognitionStatus.Manual)
+                            {
+                                lstFailedFiles.Items.Remove(item);
+                                // 添加到成功列表
+                                var successItem = CreateListViewItem(fileItem);
+                                lstSuccessFiles.Items.Insert(0, successItem);
+                            }
+                            else
+                            {
+                                UpdateFileListItem(item, fileItem);
+                                item.Tag = fileItem;
+                            }
+                            break;
+                        }
+                    }
+                }
+
+                // 如果之前不在成功或失败列表，现在需要添加
+                if (!foundInSuccess && !foundInFailed)
+                {
+                    if (fileItem.Status == RecognitionStatus.Success || fileItem.Status == RecognitionStatus.Manual)
+                    {
+                        var successItem = CreateListViewItem(fileItem);
+                        lstSuccessFiles.Items.Insert(0, successItem);
+                    }
+                    else if (fileItem.Status == RecognitionStatus.Failed)
+                    {
+                        var failedItem = CreateListViewItem(fileItem);
+                        lstFailedFiles.Items.Insert(0, failedItem);
+                    }
+                }
+
+                // 更新选项卡标题
+                UpdateTabTitles();
             }
             finally
             {
                 lstFiles.EndUpdate();
+                lstSuccessFiles.EndUpdate();
+                lstFailedFiles.EndUpdate();
             }
+        }
+
+        /// <summary>
+        /// 更新所有列表中的文件项（人工审核后）
+        /// </summary>
+        private void UpdateFileItemInAllLists(FileItem fileItem)
+        {
+            UpdateFileItemInList(fileItem);
         }
 
         /// <summary>
@@ -686,6 +882,7 @@ namespace BarcodeRenamer2
             }
 
             UpdateStatistics();
+            UpdateTabTitles();
         }
        
 
@@ -696,10 +893,12 @@ namespace BarcodeRenamer2
         {
             // 暂停绘制以提高性能
             lstFiles.BeginUpdate();
+            lstSuccessFiles.BeginUpdate();
+            lstFailedFiles.BeginUpdate();
 
             try
             {
-                // 更新所有项目的显示
+                // 更新全部列表
                 foreach (ListViewItem item in lstFiles.Items)
                 {
                     if (item.Tag is FileItem fileItem)
@@ -707,11 +906,34 @@ namespace BarcodeRenamer2
                         UpdateFileListItem(item, fileItem);
                     }
                 }
+
+                // 更新成功列表
+                foreach (ListViewItem item in lstSuccessFiles.Items)
+                {
+                    if (item.Tag is FileItem fileItem)
+                    {
+                        UpdateFileListItem(item, fileItem);
+                    }
+                }
+
+                // 更新失败列表
+                foreach (ListViewItem item in lstFailedFiles.Items)
+                {
+                    if (item.Tag is FileItem fileItem)
+                    {
+                        UpdateFileListItem(item, fileItem);
+                    }
+                }
+
+                // 更新选项卡标题
+                UpdateTabTitles();
             }
             finally
             {
                 // 恢复绘制
                 lstFiles.EndUpdate();
+                lstSuccessFiles.EndUpdate();
+                lstFailedFiles.EndUpdate();
             }
         }
         
