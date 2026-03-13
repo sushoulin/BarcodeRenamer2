@@ -240,7 +240,16 @@ namespace BarcodeRenamer2
                 }
                 else
                 {
-                    fileItem.Status = RecognitionStatus.Failed;
+                    // 区分"无条形码"和"识别失败"
+                    // 如果错误信息明确表示无条形码，则设为NoBarcode状态
+                    if (result.ErrorMessage != null && result.ErrorMessage.Contains("无条形码"))
+                    {
+                        fileItem.Status = RecognitionStatus.NoBarcode;
+                    }
+                    else
+                    {
+                        fileItem.Status = RecognitionStatus.Failed;
+                    }
                 }
             }
             catch (Exception ex)

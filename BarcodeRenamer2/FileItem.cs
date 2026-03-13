@@ -91,6 +91,7 @@ namespace BarcodeRenamer2
                     RecognitionStatus.Success => "识别成功",
                     RecognitionStatus.Failed => "识别失败",
                     RecognitionStatus.Manual => "人工审核",
+                    RecognitionStatus.NoBarcode => "无条形码",
                     _ => "未知"
                 };
             }
@@ -141,6 +142,11 @@ namespace BarcodeRenamer2
         /// <summary>
         /// 人工审核
         /// </summary>
-        Manual = 3
+        Manual = 3,
+
+        /// <summary>
+        /// 无条形码
+        /// </summary>
+        NoBarcode = 5
     }
 }
