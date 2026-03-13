@@ -61,24 +61,20 @@ namespace BarcodeRenamer2
                         int cropWidth = (int)(noBlank.Width * 0.5); // 50%宽度
                         using (var cropped = CropTopRightRegion(noBlank, cropHeight, cropWidth))
                         {
-                            // 去除毛边/锯齿，提高清晰度
-                            using (var smoothed = SmoothImage(cropped))
+                            // 保存裁剪图片（在平滑处理之前）
+                            if (!string.IsNullOrEmpty(outputFolder))
                             {
-                                // 保存裁剪图片
-                                if (!string.IsNullOrEmpty(outputFolder))
+                                SaveCroppedImage(cropped, imagePath, outputFolder, barcodeContent);
+                            }
+                            
+                            // 调整DPI到400
+                            using (var highDpi = SetHighDPI(cropped, 400))
+                            {
+                                // 多线程识别策略
+                                var result = MultiThreadRecognition(highDpi);
+                                if (result != null && ValidateResult(result))
                                 {
-                                    SaveCroppedImage(smoothed, imagePath, outputFolder, barcodeContent);
-                                }
-                                
-                                // 调整DPI到400
-                                using (var highDpi = SetHighDPI(smoothed, 400))
-                                {
-                                    // 多线程识别策略
-                                    var result = MultiThreadRecognition(highDpi);
-                                    if (result != null && ValidateResult(result))
-                                    {
-                                        return CreateSuccessResult(result);
-                                    }
+                                    return CreateSuccessResult(result);
                                 }
                             }
                         }
