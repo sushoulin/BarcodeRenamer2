@@ -147,42 +147,38 @@ namespace BarcodeRenamer2
         }
 
         /// <summary>
-        /// 去除顶部空白区域（保留下方内容）
+        /// 去除顶部空白区域（增强版 - 多策略检测）
         /// </summary>
         private Bitmap RemoveTopBlankArea(Bitmap original)
         {
             int w = original.Width;
             int h = original.Height;
             
-            // 从顶部开始扫描，找到第一个非空白行
-            int firstNonBlankRow = 0;
-            int blankThreshold = 240; // 接近白色的阈值（240-255为空白）
-            int minContentPixels = 10; // 每行至少需要10个非空白像素才算内容行
+            // 策略1: 检测纯白色空白区域（250-255）
+            int firstNonBlankRow1 = DetectBlankByThreshold(original, 250, 5);
             
-            for (int y = 0; y < h; y++)
+            // 策略2: 检测接近白色的空白区域（240-255）
+            int firstNonBlankRow2 = DetectBlankByThreshold(original, 240, 10);
+            
+            // 策略3: 检测浅灰色空白区域（230-255）
+            int firstNonBlankRow3 = DetectBlankByThreshold(original, 230, 20);
+            
+            // 策略4: 检测亮度（基于灰度值）
+            int firstNonBlankRow4 = DetectBlankByBrightness(original, 240, 15);
+            
+            // 选择最小的非空白行（最激进的空白去除）
+            // 忽略返回0的策略（表示未检测到空白）
+            int firstNonBlankRow = h; // 初始化为最大值
+            
+            if (firstNonBlankRow1 > 0) firstNonBlankRow = Math.Min(firstNonBlankRow, firstNonBlankRow1);
+            if (firstNonBlankRow2 > 0) firstNonBlankRow = Math.Min(firstNonBlankRow, firstNonBlankRow2);
+            if (firstNonBlankRow3 > 0) firstNonBlankRow = Math.Min(firstNonBlankRow, firstNonBlankRow3);
+            if (firstNonBlankRow4 > 0) firstNonBlankRow = Math.Min(firstNonBlankRow, firstNonBlankRow4);
+            
+            // 如果所有策略都返回0，说明没有空白
+            if (firstNonBlankRow == h)
             {
-                int nonBlankPixels = 0;
-                for (int x = 0; x < w; x++)
-                {
-                    var pixel = original.GetPixel(x, y);
-                    // 检查像素是否接近白色（空白）
-                    if (pixel.R < blankThreshold || pixel.G < blankThreshold || pixel.B < blankThreshold)
-                    {
-                        nonBlankPixels++;
-                        // 如果这一行有足够的非空白像素，说明是内容区域
-                        if (nonBlankPixels >= minContentPixels)
-                        {
-                            firstNonBlankRow = y;
-                            break;
-                        }
-                    }
-                }
-                
-                // 找到了内容行
-                if (nonBlankPixels >= minContentPixels)
-                {
-                    break;
-                }
+                firstNonBlankRow = 0;
             }
             
             // 如果顶部没有空白，直接返回原图
@@ -202,8 +198,69 @@ namespace BarcodeRenamer2
                     GraphicsUnit.Pixel);
             }
             
-            System.Diagnostics.Debug.WriteLine($"去除顶部空白: 从第{firstNonBlankRow}行开始, 原高度{h}, 新高度{newHeight}");
+            System.Diagnostics.Debug.WriteLine($"去除顶部空白: 策略结果[{firstNonBlankRow1},{firstNonBlankRow2},{firstNonBlankRow3},{firstNonBlankRow4}], 选择{firstNonBlankRow}, 原高度{h}, 新高度{newHeight}");
             return cropped;
+        }
+        
+        /// <summary>
+        /// 通过阈值检测空白区域
+        /// </summary>
+        private int DetectBlankByThreshold(Bitmap bitmap, int threshold, int minContentPixels)
+        {
+            int w = bitmap.Width;
+            int h = bitmap.Height;
+            
+            for (int y = 0; y < h; y++)
+            {
+                int nonBlankPixels = 0;
+                for (int x = 0; x < w; x++)
+                {
+                    var pixel = bitmap.GetPixel(x, y);
+                    // 检查像素是否接近白色（空白）
+                    if (pixel.R < threshold || pixel.G < threshold || pixel.B < threshold)
+                    {
+                        nonBlankPixels++;
+                        if (nonBlankPixels >= minContentPixels)
+                        {
+                            return y;
+                        }
+                    }
+                }
+            }
+            
+            return 0;
+        }
+        
+        /// <summary>
+        /// 通过亮度检测空白区域
+        /// </summary>
+        private int DetectBlankByBrightness(Bitmap bitmap, int brightnessThreshold, int minContentPixels)
+        {
+            int w = bitmap.Width;
+            int h = bitmap.Height;
+            
+            for (int y = 0; y < h; y++)
+            {
+                int nonBlankPixels = 0;
+                for (int x = 0; x < w; x++)
+                {
+                    var pixel = bitmap.GetPixel(x, y);
+                    // 计算亮度（灰度值）
+                    int brightness = (int)(pixel.R * 0.299 + pixel.G * 0.587 + pixel.B * 0.114);
+                    
+                    // 如果亮度较低，说明不是空白
+                    if (brightness < brightnessThreshold)
+                    {
+                        nonBlankPixels++;
+                        if (nonBlankPixels >= minContentPixels)
+                        {
+                            return y;
+                        }
+                    }
+                }
+            }
+            
+            return 0;
         }
         
         /// <summary>
