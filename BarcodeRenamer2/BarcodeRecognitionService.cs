@@ -9,7 +9,7 @@ using ZXing.Windows.Compatibility;
 using Emgu.CV;
 using Emgu.CV.CvEnum;
 using Emgu.CV.Util;
-using Emgu.CV.Barcode;
+
 
 namespace BarcodeRenamer2
 {
