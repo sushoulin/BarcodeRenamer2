@@ -53,9 +53,9 @@ namespace BarcodeRenamer2
             {
                 using (var bitmap = new Bitmap(imagePath))
                 {
-                    // 裁剪右上角区域：高度20%，宽度30%（从右侧开始）
+                    // 裁剪右上角区域：高度20%，宽度50%（从右侧开始）
                     int cropHeight = bitmap.Height / 5; // 20%高度
-                    int cropWidth = (int)(bitmap.Width * 0.3); // 30%宽度
+                    int cropWidth = (int)(bitmap.Width * 0.5); // 50%宽度
                     using (var cropped = CropTopRightRegion(bitmap, cropHeight, cropWidth))
                     {
                         // 保存裁剪图片
@@ -143,7 +143,7 @@ namespace BarcodeRenamer2
         }
 
         /// <summary>
-        /// 裁剪右上角区域（高度20%，宽度30%）
+        /// 裁剪右上角区域（高度20%，宽度50%）
         /// </summary>
         private Bitmap CropTopRightRegion(Bitmap original, int cropHeight, int cropWidth)
         {
@@ -178,52 +178,76 @@ namespace BarcodeRenamer2
                 return false;
             }
             
-            // 1. 检查识别内容的长度（大多数条形码长度 >= 6）
-            if (result.Text.Length < 6)
+            string text = result.Text.Trim();
+            
+            // 1. 检查识别内容的长度（大多数条形码长度在6-20之间）
+            if (text.Length < 6 || text.Length > 20)
             {
-                System.Diagnostics.Debug.WriteLine($"识别结果长度不足: {result.Text} (长度: {result.Text.Length})");
+                System.Diagnostics.Debug.WriteLine($"识别结果长度不符合要求: {text} (长度: {text.Length})");
                 return false;
             }
             
-            // 2. 检查识别内容的字符组成（条形码通常是数字或字母数字组合）
-            bool hasDigit = false;
-            bool hasInvalidChar = false;
-            foreach (char c in result.Text)
+            // 2. 检查识别内容的字符组成（条形码通常是纯数字或字母数字组合）
+            int digitCount = 0;
+            int letterCount = 0;
+            int invalidCharCount = 0;
+            
+            foreach (char c in text)
             {
                 if (char.IsDigit(c))
                 {
-                    hasDigit = true;
+                    digitCount++;
                 }
-                else if (!char.IsLetterOrDigit(c) && c != '-' && c != ' ')
+                else if (char.IsLetter(c))
+                {
+                    letterCount++;
+                }
+                else if (c != '-' && c != ' ')
                 {
                     // 条形码一般只包含字母、数字、短横线和空格
-                    hasInvalidChar = true;
+                    invalidCharCount++;
                 }
             }
             
-            // 条形码应该至少包含一个数字
-            if (!hasDigit)
+            // 条形码应该以数字为主
+            if (digitCount < text.Length * 0.5) // 数字占比至少50%
             {
-                System.Diagnostics.Debug.WriteLine($"识别结果不包含数字: {result.Text}");
+                System.Diagnostics.Debug.WriteLine($"识别结果数字占比不足: {text} (数字: {digitCount}/{text.Length})");
                 return false;
             }
             
             // 包含无效字符
-            if (hasInvalidChar)
+            if (invalidCharCount > 0)
             {
-                System.Diagnostics.Debug.WriteLine($"识别结果包含无效字符: {result.Text}");
+                System.Diagnostics.Debug.WriteLine($"识别结果包含无效字符: {text}");
                 return false;
             }
             
-            // 3. 检查识别结果的置信度（如果有ResultPoints）
-            if (result.ResultPoints != null && result.ResultPoints.Length > 0)
+            // 3. 检查是否全是相同字符（误识别常见模式）
+            bool allSame = true;
+            for (int i = 1; i < text.Length; i++)
             {
-                // 检查识别区域的大小（太小的区域可能是误识别）
+                if (text[i] != text[0])
+                {
+                    allSame = false;
+                    break;
+                }
+            }
+            if (allSame)
+            {
+                System.Diagnostics.Debug.WriteLine($"识别结果全为相同字符: {text}");
+                return false;
+            }
+            
+            // 4. 检查识别结果的置信度（如果有ResultPoints）
+            if (result.ResultPoints != null && result.ResultPoints.Length >= 2)
+            {
+                // 检查识别区域的大小和形状
                 float minX = float.MaxValue, maxX = float.MinValue;
                 float minY = float.MaxValue, maxY = float.MinValue;
                 
                 foreach (var point in result.ResultPoints)
-                {
+                {\n                    if (point == null) continue;
                     if (point.X < minX) minX = point.X;
                     if (point.X > maxX) maxX = point.X;
                     if (point.Y < minY) minY = point.Y;
@@ -233,21 +257,40 @@ namespace BarcodeRenamer2
                 float width = maxX - minX;
                 float height = maxY - minY;
                 
-                // 条形码宽度应该大于高度的2倍（条形码通常是横向的）
-                if (width < height * 2)
+                // 条形码宽度应该大于高度的1.5倍（条形码通常是横向的）
+                if (width < height * 1.5f)
                 {
                     System.Diagnostics.Debug.WriteLine($"识别区域形状不符合条形码特征: 宽度={width}, 高度={height}");
                     return false;
                 }
                 
-                // 条形码宽度应该至少占裁剪区域的30%
-                // 这里假设裁剪后的图片宽度约为原图的30%，高度为20%
-                // 如果识别出的条形码宽度太小，可能是误识别
-                if (width < 50) // 最小宽度阈值
+                // 条形码宽度应该足够大（至少80像素）
+                if (width < 80)
                 {
                     System.Diagnostics.Debug.WriteLine($"识别区域宽度太小: {width}");
                     return false;
                 }
+                
+                // 高度不应该太大（条形码通常高度较小）
+                if (height > 100)
+                {
+                    System.Diagnostics.Debug.WriteLine($"识别区域高度太大: {height}");
+                    return false;
+                }
+            }
+            
+            // 5. 检查条形码格式（优先CODE_128和CODE_39）
+            // 这些格式更常见于工业应用
+            if (result.BarcodeFormat != BarcodeFormat.CODE_128 && 
+                result.BarcodeFormat != BarcodeFormat.CODE_39 &&
+                result.BarcodeFormat != BarcodeFormat.EAN_13 &&
+                result.BarcodeFormat != BarcodeFormat.EAN_8 &&
+                result.BarcodeFormat != BarcodeFormat.UPC_A &&
+                result.BarcodeFormat != BarcodeFormat.UPC_E &&
+                result.BarcodeFormat != BarcodeFormat.ITF)
+            {
+                System.Diagnostics.Debug.WriteLine($"条形码格式不常见: {result.BarcodeFormat}");
+                // 不直接返回false，但记录日志
             }
             
             return true;
