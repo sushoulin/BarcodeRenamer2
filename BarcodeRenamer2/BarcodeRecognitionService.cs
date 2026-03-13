@@ -147,24 +147,24 @@ namespace BarcodeRenamer2
         }
 
         /// <summary>
-        /// 去除顶部空白区域（增强版 - 多策略检测）
+        /// 去除顶部空白区域（增强版 - 多策略检测 + 噪点容忍）
         /// </summary>
         private Bitmap RemoveTopBlankArea(Bitmap original)
         {
             int w = original.Width;
             int h = original.Height;
             
-            // 策略1: 检测纯白色空白区域（250-255）
-            int firstNonBlankRow1 = DetectBlankByThreshold(original, 250, 5);
+            // 策略1: 检测纯白色空白区域（250-255），容忍少量噪点
+            int firstNonBlankRow1 = DetectBlankWithNoiseTolerance(original, 250, w * 0.01); // 容忍1%噪点
             
-            // 策略2: 检测接近白色的空白区域（240-255）
-            int firstNonBlankRow2 = DetectBlankByThreshold(original, 240, 10);
+            // 策略2: 检测接近白色的空白区域（240-255），容忍少量噪点
+            int firstNonBlankRow2 = DetectBlankWithNoiseTolerance(original, 240, w * 0.02); // 容忍2%噪点
             
-            // 策略3: 检测浅灰色空白区域（230-255）
-            int firstNonBlankRow3 = DetectBlankByThreshold(original, 230, 20);
+            // 策略3: 检测浅灰色空白区域（230-255），容忍更多噪点
+            int firstNonBlankRow3 = DetectBlankWithNoiseTolerance(original, 230, w * 0.03); // 容忍3%噪点
             
-            // 策略4: 检测亮度（基于灰度值）
-            int firstNonBlankRow4 = DetectBlankByBrightness(original, 240, 15);
+            // 策略4: 检测亮度（基于灰度值），容忍噪点
+            int firstNonBlankRow4 = DetectBlankByBrightnessWithNoiseTolerance(original, 240, w * 0.02);
             
             // 选择最小的非空白行（最激进的空白去除）
             // 忽略返回0的策略（表示未检测到空白）
@@ -203,12 +203,13 @@ namespace BarcodeRenamer2
         }
         
         /// <summary>
-        /// 通过阈值检测空白区域
+        /// 通过阈值检测空白区域（带噪点容忍）
         /// </summary>
-        private int DetectBlankByThreshold(Bitmap bitmap, int threshold, int minContentPixels)
+        private int DetectBlankWithNoiseTolerance(Bitmap bitmap, int threshold, double noiseTolerance)
         {
             int w = bitmap.Width;
             int h = bitmap.Height;
+            int maxNoisePixels = (int)(w * noiseTolerance); // 允许的噪点数量
             
             for (int y = 0; y < h; y++)
             {
@@ -220,11 +221,13 @@ namespace BarcodeRenamer2
                     if (pixel.R < threshold || pixel.G < threshold || pixel.B < threshold)
                     {
                         nonBlankPixels++;
-                        if (nonBlankPixels >= minContentPixels)
-                        {
-                            return y;
-                        }
                     }
+                }
+                
+                // 如果该行的非空白像素超过噪点容忍度，说明是内容行
+                if (nonBlankPixels > maxNoisePixels)
+                {
+                    return y;
                 }
             }
             
@@ -232,12 +235,13 @@ namespace BarcodeRenamer2
         }
         
         /// <summary>
-        /// 通过亮度检测空白区域
+        /// 通过亮度检测空白区域（带噪点容忍）
         /// </summary>
-        private int DetectBlankByBrightness(Bitmap bitmap, int brightnessThreshold, int minContentPixels)
+        private int DetectBlankByBrightnessWithNoiseTolerance(Bitmap bitmap, int brightnessThreshold, double noiseTolerance)
         {
             int w = bitmap.Width;
             int h = bitmap.Height;
+            int maxNoisePixels = (int)(w * noiseTolerance); // 允许的噪点数量
             
             for (int y = 0; y < h; y++)
             {
@@ -252,11 +256,13 @@ namespace BarcodeRenamer2
                     if (brightness < brightnessThreshold)
                     {
                         nonBlankPixels++;
-                        if (nonBlankPixels >= minContentPixels)
-                        {
-                            return y;
-                        }
                     }
+                }
+                
+                // 如果该行的非空白像素超过噪点容忍度，说明是内容行
+                if (nonBlankPixels > maxNoisePixels)
+                {
+                    return y;
                 }
             }
             
