@@ -159,16 +159,16 @@ namespace BarcodeRenamer2
             int h = original.Height;
             
             // 策略1: 分块检测 - 每块高度为图片高度的0.5%，容忍少量噪点
-            int firstNonBlankRow1 = DetectBlankByBlock(original, 250, 0.005, 0.01); // 块高度0.5%，容忍1%噪点
+            int firstNonBlankRow1 = DetectBlankByBlock(original, 250, 0.005, 0.1); // 块高度0.5%，容忍1%噪点
             
             // 策略2: 分块检测 - 每块高度为图片高度的1%，容忍更多噪点
-            int firstNonBlankRow2 = DetectBlankByBlock(original, 240, 0.01, 0.02); // 块高度1%，容忍2%噪点
+            int firstNonBlankRow2 = DetectBlankByBlock(original, 240, 0.01, 0.1); // 块高度1%，容忍2%噪点
             
             // 策略3: 分块检测 - 每块高度为图片高度的2%，容忍更多噪点
-            int firstNonBlankRow3 = DetectBlankByBlock(original, 230, 0.02, 0.03); // 块高度2%，容忍3%噪点
+            int firstNonBlankRow3 = DetectBlankByBlock(original, 230, 0.02, 0.1); // 块高度2%，容忍3%噪点
             
             // 策略4: 分块检测 - 基于亮度
-            int firstNonBlankRow4 = DetectBlankByBlockBrightness(original, 240, 0.01, 0.02); // 块高度1%，容忍2%噪点
+            int firstNonBlankRow4 = DetectBlankByBlockBrightness(original, 240, 0.01, 0.1); // 块高度1%，容忍2%噪点
             
             // 选择最小的非空白行（最激进的空白去除）
             // 忽略返回0的策略（表示未检测到空白）
