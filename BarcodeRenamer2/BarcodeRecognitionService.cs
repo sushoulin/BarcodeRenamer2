@@ -147,7 +147,7 @@ namespace BarcodeRenamer2
         }
 
         /// <summary>
-        /// 去除顶部空白区域
+        /// 去除顶部空白区域（保留下方内容）
         /// </summary>
         private Bitmap RemoveTopBlankArea(Bitmap original)
         {
@@ -156,25 +156,31 @@ namespace BarcodeRenamer2
             
             // 从顶部开始扫描，找到第一个非空白行
             int firstNonBlankRow = 0;
-            int blankThreshold = 250; // 接近白色的阈值（250-255为空白）
+            int blankThreshold = 240; // 接近白色的阈值（240-255为空白）
+            int minContentPixels = 10; // 每行至少需要10个非空白像素才算内容行
             
             for (int y = 0; y < h; y++)
             {
-                bool isBlankRow = true;
+                int nonBlankPixels = 0;
                 for (int x = 0; x < w; x++)
                 {
                     var pixel = original.GetPixel(x, y);
                     // 检查像素是否接近白色（空白）
                     if (pixel.R < blankThreshold || pixel.G < blankThreshold || pixel.B < blankThreshold)
                     {
-                        isBlankRow = false;
-                        break;
+                        nonBlankPixels++;
+                        // 如果这一行有足够的非空白像素，说明是内容区域
+                        if (nonBlankPixels >= minContentPixels)
+                        {
+                            firstNonBlankRow = y;
+                            break;
+                        }
                     }
                 }
                 
-                if (!isBlankRow)
+                // 找到了内容行
+                if (nonBlankPixels >= minContentPixels)
                 {
-                    firstNonBlankRow = y;
                     break;
                 }
             }
@@ -185,7 +191,7 @@ namespace BarcodeRenamer2
                 return new Bitmap(original);
             }
             
-            // 裁剪掉顶部空白区域
+            // 裁剪：保留从 firstNonBlankRow 到底部的区域
             int newHeight = h - firstNonBlankRow;
             var cropped = new Bitmap(w, newHeight);
             using (var g = Graphics.FromImage(cropped))
@@ -196,12 +202,12 @@ namespace BarcodeRenamer2
                     GraphicsUnit.Pixel);
             }
             
-            System.Diagnostics.Debug.WriteLine($"去除顶部空白: {firstNonBlankRow} 像素, 新高度: {newHeight}");
+            System.Diagnostics.Debug.WriteLine($"去除顶部空白: 从第{firstNonBlankRow}行开始, 原高度{h}, 新高度{newHeight}");
             return cropped;
         }
         
         /// <summary>
-        /// 裁剪右上角区域（高度20%，宽度50%）
+        /// 裁剪右下角区域（从底部往上计算高度）
         /// </summary>
         private Bitmap CropTopRightRegion(Bitmap original, int cropHeight, int cropWidth)
         {
@@ -212,17 +218,22 @@ namespace BarcodeRenamer2
             cropHeight = Math.Min(cropHeight, h);
             cropWidth = Math.Min(cropWidth, w);
 
-            // 从右侧开始计算裁剪区域
+            // 从右侧开始计算裁剪区域（水平方向）
             int startX = w - cropWidth; // 右侧起点
+            
+            // 从底部往上计算裁剪区域（垂直方向）
+            int startY = h - cropHeight; // 底部往上计算起点
 
             var cropped = new Bitmap(cropWidth, cropHeight);
             using (var g = Graphics.FromImage(cropped))
             {
                 g.DrawImage(original,
                     new Rectangle(0, 0, cropWidth, cropHeight),
-                    new Rectangle(startX, 0, cropWidth, cropHeight),
+                    new Rectangle(startX, startY, cropWidth, cropHeight),
                     GraphicsUnit.Pixel);
             }
+            
+            System.Diagnostics.Debug.WriteLine($"裁剪右下角区域: 起点({startX}, {startY}), 大小{cropWidth}x{cropHeight}");
             return cropped;
         }
         
