@@ -63,8 +63,23 @@ namespace BarcodeRenamer2
             this.MinimumSize = new Size(800, 600);
             this.StartPosition = FormStartPosition.CenterScreen;
             
-            // 设置窗体图标（使用系统信息图标）
-            this.Icon = SystemIcons.Information;
+            // 加载自定义图标
+            try
+            {
+                string iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "app.ico");
+                if (File.Exists(iconPath))
+                {
+                    this.Icon = new Icon(iconPath);
+                }
+                else
+                {
+                    this.Icon = SystemIcons.Information;
+                }
+            }
+            catch
+            {
+                this.Icon = SystemIcons.Information;
+            }
 
             // 配置区域
             grpConfig = new GroupBox
