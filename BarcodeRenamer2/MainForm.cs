@@ -11,6 +11,10 @@ namespace BarcodeRenamer2
         private FileScanService scanService;
         private System.Windows.Forms.Timer scanTimer;
         private ScanStatistics totalStats;
+        
+        // 系统托盘
+        private NotifyIcon notifyIcon;
+        private ContextMenuStrip trayContextMenu;
 
         // 控件
         private GroupBox grpConfig;
@@ -46,6 +50,7 @@ namespace BarcodeRenamer2
             totalStats = new ScanStatistics();
 
             InitializeComponents();
+            InitializeTrayIcon(); // 初始化托盘图标
             LoadConfigToUI();
             SetupEventHandlers();
         }
@@ -689,6 +694,100 @@ namespace BarcodeRenamer2
             {
                 // 恢复绘制
                 lstFiles.EndUpdate();
+            }
+        }
+        
+        /// <summary>
+        /// 初始化系统托盘图标
+        /// </summary>
+        private void InitializeTrayIcon()
+        {
+            // 创建托盘图标
+            notifyIcon = new NotifyIcon();
+            notifyIcon.Text = "条形码识别工具";
+            notifyIcon.Visible = true;
+            
+            // 使用默认应用程序图标
+            notifyIcon.Icon = SystemIcons.Application;
+            
+            // 创建右键菜单
+            trayContextMenu = new ContextMenuStrip();
+            
+            // 添加菜单项
+            var showMenuItem = new ToolStripMenuItem("显示主界面");
+            showMenuItem.Click += (s, e) => ShowMainWindow();
+            trayContextMenu.Items.Add(showMenuItem);
+            
+            trayContextMenu.Items.Add(new ToolStripSeparator()); // 分隔线
+            
+            var exitMenuItem = new ToolStripMenuItem("退出程序");
+            exitMenuItem.Click += (s, e) => ExitApplication();
+            trayContextMenu.Items.Add(exitMenuItem);
+            
+            // 设置右键菜单
+            notifyIcon.ContextMenuStrip = trayContextMenu;
+            
+            // 双击托盘图标显示主窗口
+            notifyIcon.DoubleClick += (s, e) => ShowMainWindow();
+        }
+        
+        /// <summary>
+        /// 显示主窗口
+        /// </summary>
+        private void ShowMainWindow()
+        {
+            this.Show();
+            this.WindowState = FormWindowState.Normal;
+            this.Activate();
+        }
+        
+        /// <summary>
+        /// 退出应用程序
+        /// </summary>
+        private void ExitApplication()
+        {
+            // 停止扫描
+            if (scanTimer.Enabled)
+            {
+                scanTimer.Stop();
+                scanService.StopRecognition();
+            }
+            
+            // 保存配置
+            config.Save();
+            
+            // 移除托盘图标
+            if (notifyIcon != null)
+            {
+                notifyIcon.Visible = false;
+                notifyIcon.Dispose();
+            }
+            
+            // 退出应用
+            Application.Exit();
+        }
+        
+        /// <summary>
+        /// 重写窗体关闭事件，最小化到托盘而非关闭
+        /// </summary>
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            // 如果不是真正退出，则最小化到托盘
+            if (e.CloseReason == CloseReason.UserClosing)
+            {
+                e.Cancel = true; // 取消关闭
+                this.Hide(); // 隐藏窗口
+                notifyIcon.ShowBalloonTip(2000, "条形码识别工具", "程序已最小化到系统托盘，继续后台运行", ToolTipIcon.Info);
+            }
+            else
+            {
+                // 真正退出时，清理托盘图标
+                if (notifyIcon != null)
+                {
+                    notifyIcon.Visible = false;
+                    notifyIcon.Dispose();
+                }
+                base.OnFormClosing(e);
             }
         }
     }
