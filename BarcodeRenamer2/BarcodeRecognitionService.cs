@@ -207,7 +207,7 @@ namespace BarcodeRenamer2
         }
         
         /// <summary>
-        /// 裁剪右下角区域（从底部往上计算高度）
+        /// 裁剪右上角区域（从顶部开始裁剪）
         /// </summary>
         private Bitmap CropTopRightRegion(Bitmap original, int cropHeight, int cropWidth)
         {
@@ -221,8 +221,8 @@ namespace BarcodeRenamer2
             // 从右侧开始计算裁剪区域（水平方向）
             int startX = w - cropWidth; // 右侧起点
             
-            // 从底部往上计算裁剪区域（垂直方向）
-            int startY = h - cropHeight; // 底部往上计算起点
+            // 从顶部开始裁剪（垂直方向）
+            int startY = 0; // 顶部起点
 
             var cropped = new Bitmap(cropWidth, cropHeight);
             using (var g = Graphics.FromImage(cropped))
@@ -233,7 +233,7 @@ namespace BarcodeRenamer2
                     GraphicsUnit.Pixel);
             }
             
-            System.Diagnostics.Debug.WriteLine($"裁剪右下角区域: 起点({startX}, {startY}), 大小{cropWidth}x{cropHeight}");
+            System.Diagnostics.Debug.WriteLine($"裁剪右上角区域: 起点({startX}, {startY}), 大小{cropWidth}x{cropHeight}");
             return cropped;
         }
         
