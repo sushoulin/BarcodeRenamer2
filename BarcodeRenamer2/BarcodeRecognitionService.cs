@@ -247,7 +247,7 @@ namespace BarcodeRenamer2
                 float minY = float.MaxValue, maxY = float.MinValue;
                 
                 foreach (var point in result.ResultPoints)
-                {\n                    if (point == null) continue;
+                {                    if (point == null) continue;
                     if (point.X < minX) minX = point.X;
                     if (point.X > maxX) maxX = point.X;
                     if (point.Y < minY) minY = point.Y;
