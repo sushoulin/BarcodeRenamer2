@@ -134,7 +134,7 @@ namespace BarcodeRenamer2
             {
                 Text = "扫描控制",
                 Location = new Point(470, 10),
-                Size = new Size(500, 120),
+                Size = new Size(520, 120),
                 Font = new Font("Microsoft YaHei UI", 9, FontStyle.Bold)
             };
 
@@ -172,8 +172,8 @@ namespace BarcodeRenamer2
             btnRefresh = new Button
             {
                 Text = "刷新列表",
-                Location = new Point(460, 25),
-                Size = new Size(100, 35),
+                Location = new Point(310, 70),
+                Size = new Size(140, 35),
                 BackColor = Color.FromArgb(108, 117, 125),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat
@@ -615,10 +615,19 @@ namespace BarcodeRenamer2
                 // 查找对应的 ListViewItem
                 foreach (ListViewItem item in lstFiles.Items)
                 {
-                    if (item.Tag is FileItem itemFile && itemFile.FilePath == fileItem.OriginalFilePath)
+                    if (item.Tag is FileItem itemFile)
                     {
-                        UpdateFileListItem(item, fileItem);
-                        break;
+                        // 使用OriginalFilePath进行匹配，如果为空则使用FilePath
+                        string itemPath = itemFile.OriginalFilePath ?? itemFile.FilePath;
+                        string targetPath = fileItem.OriginalFilePath ?? fileItem.FilePath;
+                        
+                        if (itemPath == targetPath)
+                        {
+                            UpdateFileListItem(item, fileItem);
+                            // 更新Tag为最新的fileItem
+                            item.Tag = fileItem;
+                            break;
+                        }
                     }
                 }
             }

@@ -53,25 +53,29 @@ namespace BarcodeRenamer2
             {
                 using (var bitmap = new Bitmap(imagePath))
                 {
-                    // 裁剪右上角区域：高度20%，宽度50%（从右侧开始）
-                    int cropHeight = bitmap.Height / 5; // 20%高度
-                    int cropWidth = (int)(bitmap.Width * 0.5); // 50%宽度
-                    using (var cropped = CropTopRightRegion(bitmap, cropHeight, cropWidth))
+                    // 先去除顶部空白区域
+                    using (var noBlank = RemoveTopBlankArea(bitmap))
                     {
-                        // 保存裁剪图片
-                        if (!string.IsNullOrEmpty(outputFolder))
+                        // 裁剪右上角区域：高度20%，宽度50%（从右侧开始）
+                        int cropHeight = noBlank.Height / 5; // 20%高度
+                        int cropWidth = (int)(noBlank.Width * 0.5); // 50%宽度
+                        using (var cropped = CropTopRightRegion(noBlank, cropHeight, cropWidth))
                         {
-                            SaveCroppedImage(cropped, imagePath, outputFolder, barcodeContent);
-                        }
-                        
-                        // 调整DPI到150以上
-                        using (var highDpi = SetHighDPI(cropped, 200))
-                        {
-                            // 多线程识别策略
-                            var result = MultiThreadRecognition(highDpi);
-                            if (result != null && ValidateResult(result))
+                            // 保存裁剪图片
+                            if (!string.IsNullOrEmpty(outputFolder))
                             {
-                                return CreateSuccessResult(result);
+                                SaveCroppedImage(cropped, imagePath, outputFolder, barcodeContent);
+                            }
+                            
+                            // 调整DPI到400
+                            using (var highDpi = SetHighDPI(cropped, 400))
+                            {
+                                // 多线程识别策略
+                                var result = MultiThreadRecognition(highDpi);
+                                if (result != null && ValidateResult(result))
+                                {
+                                    return CreateSuccessResult(result);
+                                }
                             }
                         }
                     }
@@ -142,6 +146,60 @@ namespace BarcodeRenamer2
             }
         }
 
+        /// <summary>
+        /// 去除顶部空白区域
+        /// </summary>
+        private Bitmap RemoveTopBlankArea(Bitmap original)
+        {
+            int w = original.Width;
+            int h = original.Height;
+            
+            // 从顶部开始扫描，找到第一个非空白行
+            int firstNonBlankRow = 0;
+            int blankThreshold = 250; // 接近白色的阈值（250-255为空白）
+            
+            for (int y = 0; y < h; y++)
+            {
+                bool isBlankRow = true;
+                for (int x = 0; x < w; x++)
+                {
+                    var pixel = original.GetPixel(x, y);
+                    // 检查像素是否接近白色（空白）
+                    if (pixel.R < blankThreshold || pixel.G < blankThreshold || pixel.B < blankThreshold)
+                    {
+                        isBlankRow = false;
+                        break;
+                    }
+                }
+                
+                if (!isBlankRow)
+                {
+                    firstNonBlankRow = y;
+                    break;
+                }
+            }
+            
+            // 如果顶部没有空白，直接返回原图
+            if (firstNonBlankRow == 0)
+            {
+                return new Bitmap(original);
+            }
+            
+            // 裁剪掉顶部空白区域
+            int newHeight = h - firstNonBlankRow;
+            var cropped = new Bitmap(w, newHeight);
+            using (var g = Graphics.FromImage(cropped))
+            {
+                g.DrawImage(original,
+                    new Rectangle(0, 0, w, newHeight),
+                    new Rectangle(0, firstNonBlankRow, w, newHeight),
+                    GraphicsUnit.Pixel);
+            }
+            
+            System.Diagnostics.Debug.WriteLine($"去除顶部空白: {firstNonBlankRow} 像素, 新高度: {newHeight}");
+            return cropped;
+        }
+        
         /// <summary>
         /// 裁剪右上角区域（高度20%，宽度50%）
         /// </summary>
@@ -297,7 +355,7 @@ namespace BarcodeRenamer2
         }
 
         /// <summary>
-        /// 设置高DPI（默认200dpi）
+        /// 设置高DPI（默认400dpi）
         /// </summary>
         private Bitmap SetHighDPI(Bitmap original, int dpi)
         {
