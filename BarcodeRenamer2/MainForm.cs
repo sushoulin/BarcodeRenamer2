@@ -507,6 +507,7 @@ namespace BarcodeRenamer2
             config.Save();
 
             scanTimer.Stop();
+            scanService.StopRecognition(); // 停止识别
 
             btnStartScan.Enabled = true;
             btnStopScan.Enabled = false;

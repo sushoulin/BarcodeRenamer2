@@ -15,6 +15,7 @@ namespace BarcodeRenamer2
         private readonly HashSet<string> processedFiles;
         private readonly Queue<FileItem> pendingRecognitionQueue;
         private bool isRecognizing = false;
+        private bool stopRequested = false;
 
         public event EventHandler<FileItem>? FileProcessed;
         public event EventHandler<FileItem>? FileRecognized;
@@ -133,13 +134,23 @@ namespace BarcodeRenamer2
         }
 
         /// <summary>
+        /// 停止识别
+        /// </summary>
+        public void StopRecognition()
+        {
+            stopRequested = true;
+            pendingRecognitionQueue.Clear();
+        }
+        
+        /// <summary>
         /// 启动异步识别
         /// </summary>
         private async Task StartAsyncRecognition()
         {
             isRecognizing = true;
+            stopRequested = false;
 
-            while (pendingRecognitionQueue.Count > 0)
+            while (pendingRecognitionQueue.Count > 0 && !stopRequested)
             {
                 var fileItem = pendingRecognitionQueue.Dequeue();
 
@@ -164,6 +175,14 @@ namespace BarcodeRenamer2
         {
             try
             {
+                // 检查是否请求停止
+                if (stopRequested)
+                {
+                    fileItem.Status = RecognitionStatus.Pending;
+                    FileRecognized?.Invoke(this, fileItem);
+                    return;
+                }
+                
                 // 更新状态为识别中
                 fileItem.Status = RecognitionStatus.Recognizing;
                 FileRecognized?.Invoke(this, fileItem);
@@ -176,8 +195,8 @@ namespace BarcodeRenamer2
                     return;
                 }
 
-                // 识别条形码
-                var result = recognitionService.Recognize(fileItem.FilePath);
+                // 识别条形码（传入输出文件夹以便保存裁剪图片）
+                var result = recognitionService.Recognize(fileItem.FilePath, config.OutputFolder, null);
                 fileItem.RecognitionTime = DateTime.Now;
 
                 if (result.Success && !string.IsNullOrEmpty(result.Content))
