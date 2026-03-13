@@ -607,14 +607,23 @@ namespace BarcodeRenamer2
         /// </summary>
         private void UpdateFileItemInList(FileItem fileItem)
         {
-            // 查找对应的 ListViewItem
-            foreach (ListViewItem item in lstFiles.Items)
+            // 暂停绘制以避免闪烁
+            lstFiles.BeginUpdate();
+            try
             {
-                if (item.Tag is FileItem itemFile && itemFile.FilePath == fileItem.OriginalFilePath)
+                // 查找对应的 ListViewItem
+                foreach (ListViewItem item in lstFiles.Items)
                 {
-                    UpdateFileListItem(item, fileItem);
-                    break;
+                    if (item.Tag is FileItem itemFile && itemFile.FilePath == fileItem.OriginalFilePath)
+                    {
+                        UpdateFileListItem(item, fileItem);
+                        break;
+                    }
                 }
+            }
+            finally
+            {
+                lstFiles.EndUpdate();
             }
         }
 
@@ -644,9 +653,7 @@ namespace BarcodeRenamer2
             }
 
             UpdateStatistics();
-
-            // 自动刷新列表（每识别完一个文件刷新一次）
-            RefreshFileList();
+        }
         }
 
         /// <summary>

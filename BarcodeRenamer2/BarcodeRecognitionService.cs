@@ -3,13 +3,14 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
+using System.Threading.Tasks;
 using ZXing;
 using ZXing.Windows.Compatibility;
 
 namespace BarcodeRenamer2
 {
     /// <summary>
-    /// 条形码识别服务类 - 专注于右上角区域快速识别
+    /// 条形码识别服务类 - 多线程识别优化版
     /// </summary>
     public class BarcodeRecognitionService
     {
@@ -44,7 +45,7 @@ namespace BarcodeRenamer2
         }
 
         /// <summary>
-        /// 识别图片中的条形码（专注于右上角区域）
+        /// 识别图片中的条形码（多线程优化）
         /// </summary>
         public RecognitionResult Recognize(string imagePath)
         {
@@ -52,11 +53,20 @@ namespace BarcodeRenamer2
             {
                 using (var bitmap = new Bitmap(imagePath))
                 {
-                    // 快速识别右上角区域
-                    var result = TryTopRightRegion(bitmap);
-                    if (result != null)
+                    // 裁剪高度20%区域
+                    int cropHeight = bitmap.Height / 5; // 20%
+                    using (var cropped = CropTopRegion(bitmap, cropHeight))
                     {
-                        return CreateSuccessResult(result);
+                        // 调整DPI到150以上
+                        using (var highDpi = SetHighDPI(cropped, 200))
+                        {
+                            // 多线程识别策略
+                            var result = MultiThreadRecognition(highDpi);
+                            if (result != null)
+                            {
+                                return CreateSuccessResult(result);
+                            }
+                        }
                     }
                 }
             }
@@ -78,71 +88,138 @@ namespace BarcodeRenamer2
         }
 
         /// <summary>
-        /// 右上角区域快速识别
+        /// 裁剪顶部区域（高度20%）
         /// </summary>
-        private Result? TryTopRightRegion(Bitmap original)
+        private Bitmap CropTopRegion(Bitmap original, int cropHeight)
         {
             int w = original.Width;
             int h = original.Height;
 
-            // 右上角区域：宽度的50%-100%，高度的0%-50%
-            int startX = w / 2;
-            int startY = 0;
-            int regionWidth = w / 2;
-            int regionHeight = h / 2;
+            // 确保裁剪高度不超过原图高度
+            cropHeight = Math.Min(cropHeight, h);
 
-            // 裁剪右上角区域
-            using (var region = new Bitmap(regionWidth, regionHeight))
+            var cropped = new Bitmap(w, cropHeight);
+            using (var g = Graphics.FromImage(cropped))
             {
-                using (var g = Graphics.FromImage(region))
+                g.DrawImage(original,
+                    new Rectangle(0, 0, w, cropHeight),
+                    new Rectangle(0, 0, w, cropHeight),
+                    GraphicsUnit.Pixel);
+            }
+            return cropped;
+        }
+
+        /// <summary>
+        /// 设置高DPI（默认200dpi）
+        /// </summary>
+        private Bitmap SetHighDPI(Bitmap original, int dpi)
+        {
+            var highDpi = new Bitmap(original.Width, original.Height);
+            highDpi.SetResolution(dpi, dpi);
+
+            using (var g = Graphics.FromImage(highDpi))
+            {
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+                g.DrawImage(original, 0, 0, original.Width, original.Height);
+            }
+
+            return highDpi;
+        }
+
+        /// <summary>
+        /// 多线程识别（3个策略并行）
+        /// </summary>
+        private Result? MultiThreadRecognition(Bitmap bitmap)
+        {
+            Result? result = null;
+            var tasks = new List<Task<Result?>>();
+
+            // 策略1: 原始识别
+            tasks.Add(Task.Run(() =>
+            {
+                try
                 {
-                    g.DrawImage(original,
-                        new Rectangle(0, 0, regionWidth, regionHeight),
-                        new Rectangle(startX, startY, regionWidth, regionHeight),
-                        GraphicsUnit.Pixel);
+                    return reader.Decode(bitmap);
                 }
-
-                // 策略1: 原始区域识别
-                var result = reader.Decode(region);
-                if (result != null) return result;
-
-                // 策略2: 灰度化识别
-                using (var gray = ConvertToGrayscale(region))
+                catch
                 {
-                    result = reader.Decode(gray);
-                    if (result != null) return result;
+                    return null;
+                }
+            }));
 
-                    // 策略3: 二值化识别（尝试几个关键阈值）
-                    int[] thresholds = { 128, 100, 150 };
-                    foreach (int thresh in thresholds)
+            // 策略2: 灰度化 + 二值化
+            tasks.Add(Task.Run(() =>
+            {
+                try
+                {
+                    using (var gray = ConvertToGrayscale(bitmap))
                     {
-                        using (var binary = Binarize(gray, thresh))
-                        {
-                            result = reader.Decode(binary);
-                            if (result != null) return result;
-                        }
-                    }
+                        var r = reader.Decode(gray);
+                        if (r != null) return r;
 
-                    // 策略4: 放大2倍后识别
-                    int scale = 2;
-                    int newW = regionWidth * scale;
-                    int newH = regionHeight * scale;
-
-                    using (var scaledGray = new Bitmap(gray, newW, newH))
-                    {
-                        result = reader.Decode(scaledGray);
-                        if (result != null) return result;
-
-                        // 放大后二值化
+                        // 尝试二值化
+                        int[] thresholds = { 128, 100, 150 };
                         foreach (int thresh in thresholds)
                         {
-                            using (var binary = Binarize(scaledGray, thresh))
+                            using (var binary = Binarize(gray, thresh))
                             {
-                                result = reader.Decode(binary);
-                                if (result != null) return result;
+                                r = reader.Decode(binary);
+                                if (r != null) return r;
                             }
                         }
+                        return null;
                     }
+                }
+                catch
+                {
+                    return null;
+                }
+            }));
+
+            // 策略3: 放大识别
+            tasks.Add(Task.Run(() =>
+            {
+                try
+                {
+                    int scale = 2;
+                    using (var scaled = new Bitmap(bitmap, bitmap.Width * scale, bitmap.Height * scale))
+                    {
+                        var r = reader.Decode(scaled);
+                        if (r != null) return r;
+
+                        using (var gray = ConvertToGrayscale(scaled))
+                        {
+                            r = reader.Decode(gray);
+                            if (r != null) return r;
+
+                            int[] thresholds = { 128, 100 };
+                            foreach (int thresh in thresholds)
+                            {
+                                using (var binary = Binarize(gray, thresh))
+                                {
+                                    r = reader.Decode(binary);
+                                    if (r != null) return r;
+                                }
+                            }
+                        }
+                        return null;
+                    }
+                }
+                catch
+                {
+                    return null;
+                }
+            }));
+
+            // 等待所有任务完成，返回第一个成功的结果
+            Task.WaitAll(tasks.ToArray());
+
+            foreach (var task in tasks)
+            {
+                if (task.Result != null)
+                {
+                    return task.Result;
                 }
             }
 
