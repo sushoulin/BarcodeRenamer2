@@ -53,9 +53,10 @@ namespace BarcodeRenamer2
             {
                 using (var bitmap = new Bitmap(imagePath))
                 {
-                    // 裁剪高度20%区域
-                    int cropHeight = bitmap.Height / 5; // 20%
-                    using (var cropped = CropTopRegion(bitmap, cropHeight))
+                    // 裁剪右上角区域：高度20%，宽度30%（从右侧开始）
+                    int cropHeight = bitmap.Height / 5; // 20%高度
+                    int cropWidth = (int)(bitmap.Width * 0.3); // 30%宽度
+                    using (var cropped = CropTopRightRegion(bitmap, cropHeight, cropWidth))
                     {
                         // 保存裁剪图片
                         if (!string.IsNullOrEmpty(outputFolder))
@@ -68,7 +69,7 @@ namespace BarcodeRenamer2
                         {
                             // 多线程识别策略
                             var result = MultiThreadRecognition(highDpi);
-                            if (result != null)
+                            if (result != null && ValidateResult(result))
                             {
                                 return CreateSuccessResult(result);
                             }
@@ -142,25 +143,114 @@ namespace BarcodeRenamer2
         }
 
         /// <summary>
-        /// 裁剪顶部区域（高度20%）
+        /// 裁剪右上角区域（高度20%，宽度30%）
         /// </summary>
-        private Bitmap CropTopRegion(Bitmap original, int cropHeight)
+        private Bitmap CropTopRightRegion(Bitmap original, int cropHeight, int cropWidth)
         {
             int w = original.Width;
             int h = original.Height;
 
-            // 确保裁剪高度不超过原图高度
+            // 确保裁剪尺寸不超过原图尺寸
             cropHeight = Math.Min(cropHeight, h);
+            cropWidth = Math.Min(cropWidth, w);
 
-            var cropped = new Bitmap(w, cropHeight);
+            // 从右侧开始计算裁剪区域
+            int startX = w - cropWidth; // 右侧起点
+
+            var cropped = new Bitmap(cropWidth, cropHeight);
             using (var g = Graphics.FromImage(cropped))
             {
                 g.DrawImage(original,
-                    new Rectangle(0, 0, w, cropHeight),
-                    new Rectangle(0, 0, w, cropHeight),
+                    new Rectangle(0, 0, cropWidth, cropHeight),
+                    new Rectangle(startX, 0, cropWidth, cropHeight),
                     GraphicsUnit.Pixel);
             }
             return cropped;
+        }
+        
+        /// <summary>
+        /// 验证识别结果的可靠性
+        /// </summary>
+        private bool ValidateResult(Result result)
+        {
+            if (result == null || string.IsNullOrEmpty(result.Text))
+            {
+                return false;
+            }
+            
+            // 1. 检查识别内容的长度（大多数条形码长度 >= 6）
+            if (result.Text.Length < 6)
+            {
+                System.Diagnostics.Debug.WriteLine($"识别结果长度不足: {result.Text} (长度: {result.Text.Length})");
+                return false;
+            }
+            
+            // 2. 检查识别内容的字符组成（条形码通常是数字或字母数字组合）
+            bool hasDigit = false;
+            bool hasInvalidChar = false;
+            foreach (char c in result.Text)
+            {
+                if (char.IsDigit(c))
+                {
+                    hasDigit = true;
+                }
+                else if (!char.IsLetterOrDigit(c) && c != '-' && c != ' ')
+                {
+                    // 条形码一般只包含字母、数字、短横线和空格
+                    hasInvalidChar = true;
+                }
+            }
+            
+            // 条形码应该至少包含一个数字
+            if (!hasDigit)
+            {
+                System.Diagnostics.Debug.WriteLine($"识别结果不包含数字: {result.Text}");
+                return false;
+            }
+            
+            // 包含无效字符
+            if (hasInvalidChar)
+            {
+                System.Diagnostics.Debug.WriteLine($"识别结果包含无效字符: {result.Text}");
+                return false;
+            }
+            
+            // 3. 检查识别结果的置信度（如果有ResultPoints）
+            if (result.ResultPoints != null && result.ResultPoints.Length > 0)
+            {
+                // 检查识别区域的大小（太小的区域可能是误识别）
+                float minX = float.MaxValue, maxX = float.MinValue;
+                float minY = float.MaxValue, maxY = float.MinValue;
+                
+                foreach (var point in result.ResultPoints)
+                {
+                    if (point.X < minX) minX = point.X;
+                    if (point.X > maxX) maxX = point.X;
+                    if (point.Y < minY) minY = point.Y;
+                    if (point.Y > maxY) maxY = point.Y;
+                }
+                
+                float width = maxX - minX;
+                float height = maxY - minY;
+                
+                // 条形码宽度应该大于高度的2倍（条形码通常是横向的）
+                if (width < height * 2)
+                {
+                    System.Diagnostics.Debug.WriteLine($"识别区域形状不符合条形码特征: 宽度={width}, 高度={height}");
+                    return false;
+                }
+                
+                // 条形码宽度应该至少占裁剪区域的30%
+                // 这里假设裁剪后的图片宽度约为原图的30%，高度为20%
+                // 如果识别出的条形码宽度太小，可能是误识别
+                if (width < 50) // 最小宽度阈值
+                {
+                    System.Diagnostics.Debug.WriteLine($"识别区域宽度太小: {width}");
+                    return false;
+                }
+            }
+            
+            return true;
         }
 
         /// <summary>
