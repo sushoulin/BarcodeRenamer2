@@ -140,49 +140,54 @@ namespace BarcodeRenamer2
             try
             {
                 // 转换为Emgu CV格式
-                using (var mat = BitmapToMat(bitmap))
-                using (var gray = new Mat())
-                using (var gradient = new Mat())
-                using (var blurred = new Mat())
-                using (var threshold = new Mat())
-                using (var kernel = new Mat())
-                using (var closed = new Mat())
-                using (var eroded = new Mat())
-                using (var dilated = new Mat())
+                // 转换为Emgu CV格式
+                Mat mat = null;
+                try
                 {
-                    // 1. 转换为灰度图
-                    CvInvoke.CvtColor(mat, gray, ColorConversion.Bgr2Gray);
-
-                    // 2. 计算梯度（Scharr算子）- 突出条形码的条纹特征
-                    using (var gradX = new Mat())
-                    using (var gradY = new Mat())
+                    mat = BitmapToMat(bitmap);
+                    using (var gray = new Mat())
+                    using (var gradient = new Mat())
+                    using (var blurred = new Mat())
+                    using (var threshold = new Mat())
+                    using (var closed = new Mat())
+                    using (var eroded = new Mat())
+                    using (var dilated = new Mat())
                     {
-                        CvInvoke.Scharr(gray, gradX, DepthType.Cv16S, 1, 0);
-                        CvInvoke.Scharr(gray, gradY, DepthType.Cv16S, 0, 1);
-                        
-                        // 取绝对值
-                        CvInvoke.ConvertScaleAbs(gradX, gradX, 1, 0);
-                        CvInvoke.ConvertScaleAbs(gradY, gradY, 1, 0);
-                        
-                        // 水平梯度减去垂直梯度（条形码水平条纹更明显）
-                        CvInvoke.Subtract(gradX, gradY, gradient);
-                        CvInvoke.ConvertScaleAbs(gradient, gradient, 1, 0);
-                    }
+                        // 1. 转换为灰度图
+                        CvInvoke.CvtColor(mat, gray, ColorConversion.Bgr2Gray);
 
-                    // 3. 高斯模糊 - 平滑噪声
-                    CvInvoke.GaussianBlur(gradient, blurred, new Size(9, 9), 0);
+                        // 2. 计算梯度（Scharr算子）- 突出条形码的条纹特征
+                        using (var gradX = new Mat())
+                        using (var gradY = new Mat())
+                        {
+                            CvInvoke.Scharr(gray, gradX, DepthType.Cv16S, 1, 0);
+                            CvInvoke.Scharr(gray, gradY, DepthType.Cv16S, 0, 1);
+                            
+                            // 取绝对值
+                            CvInvoke.ConvertScaleAbs(gradX, gradX, 1, 0);
+                            CvInvoke.ConvertScaleAbs(gradY, gradY, 1, 0);
+                            
+                            // 水平梯度减去垂直梯度（条形码水平条纹更明显）
+                            CvInvoke.Subtract(gradX, gradY, gradient);
+                            CvInvoke.ConvertScaleAbs(gradient, gradient, 1, 0);
+                        }
 
-                    // 4. 二值化
-                    CvInvoke.Threshold(blurred, threshold, 225, 255, ThresholdType.Binary);
+                        // 3. 高斯模糊 - 平滑噪声
+                        CvInvoke.GaussianBlur(gradient, blurred, new Size(9, 9), 0);
 
-                    // 5. 形态学操作 - 连接条形码区域
-                    // 创建水平核（条形码通常是水平的）
-                    kernel = CvInvoke.GetStructuringElement(ElementShape.Rectangle, new Size(21, 7), new Point(-1, -1));
-                    CvInvoke.MorphologyEx(threshold, closed, MorphOp.Close, kernel, new Point(-1, -1), 4, BorderType.Default, new MCvScalar());
+                        // 4. 二值化
+                        CvInvoke.Threshold(blurred, threshold, 225, 255, ThresholdType.Binary);
 
-                    // 6. 腐蚀和膨胀 - 去除小噪点
-                    CvInvoke.Erode(closed, eroded, null, new Point(-1, -1), 4, BorderType.Default, new MCvScalar());
-                    CvInvoke.Dilate(eroded, dilated, null, new Point(-1, -1), 4, BorderType.Default, new MCvScalar());
+                        // 5. 形态学操作 - 连接条形码区域
+                        // 创建水平核（条形码通常是水平的）
+                        using (var kernel = CvInvoke.GetStructuringElement(ElementShape.Rectangle, new Size(21, 7), new Point(-1, -1)))
+                        {
+                            CvInvoke.MorphologyEx(threshold, closed, MorphOp.Close, kernel, new Point(-1, -1), 4, BorderType.Default, new MCvScalar());
+                        }
+
+                        // 6. 腐蚀和膨胀 - 去除小噪点
+                        CvInvoke.Erode(closed, eroded, null, new Point(-1, -1), 4, BorderType.Default, new MCvScalar());
+                        CvInvoke.Dilate(eroded, dilated, null, new Point(-1, -1), 4, BorderType.Default, new MCvScalar());
 
                     // 7. 查找轮廓
                     using (var contours = new VectorOfVectorOfPoint())
@@ -217,6 +222,11 @@ namespace BarcodeRenamer2
                             System.Diagnostics.Debug.WriteLine($"检测到候选条形码区域: {rect}");
                         }
                     }
+                    }
+                }
+                finally
+                {
+                    mat?.Dispose();
                 }
             }
             catch (Exception ex)
@@ -233,18 +243,39 @@ namespace BarcodeRenamer2
         private Mat BitmapToMat(Bitmap bitmap)
         {
             // 确保像素格式正确
+            Bitmap workBitmap = bitmap;
+            bool needDispose = false;
+            
             if (bitmap.PixelFormat != PixelFormat.Format24bppRgb &&
                 bitmap.PixelFormat != PixelFormat.Format32bppArgb &&
                 bitmap.PixelFormat != PixelFormat.Format32bppRgb)
             {
-                var converted = new Bitmap(bitmap.Width, bitmap.Height, PixelFormat.Format24bppRgb);
-                using (var g = Graphics.FromImage(converted))
+                workBitmap = new Bitmap(bitmap.Width, bitmap.Height, PixelFormat.Format24bppRgb);
+                using (var g = Graphics.FromImage(workBitmap))
                 {
                     g.DrawImage(bitmap, 0, 0);
                 }
-                return converted.ToMat();
+                needDispose = true;
             }
-            return bitmap.ToMat();
+            
+            try
+            {
+                // 使用 ImageConverter 转换
+                var converter = new ImageConverter();
+                var bytes = (byte[])converter.ConvertTo(workBitmap, typeof(byte[]));
+                
+                var mat = new Mat();
+                CvInvoke.Imdecode(bytes, ImreadModes.Color, mat);
+                
+                return mat;
+            }
+            finally
+            {
+                if (needDispose && workBitmap != null)
+                {
+                    workBitmap.Dispose();
+                }
+            }
         }
 
         /// <summary>
