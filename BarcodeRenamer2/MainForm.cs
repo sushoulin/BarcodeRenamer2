@@ -273,9 +273,10 @@ namespace BarcodeRenamer2
             // 创建选项卡
             tabFileFilter = new TabControl
             {
-                Location = new Point(10, 20),
-                Size = new Size(940, 330),
-                Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right
+                Location = new Point(5, 18),
+                Size = new Size(950, 330),
+                Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
+                Font = new Font("Microsoft YaHei UI", 9F)
             };
 
             // 全部选项卡
@@ -304,7 +305,7 @@ namespace BarcodeRenamer2
             btnManualReview = new Button
             {
                 Text = "人工审核",
-                Location = new Point(10, 355),
+                Location = new Point(5, 355),
                 Size = new Size(100, 30),
                 Anchor = AnchorStyles.Bottom | AnchorStyles.Left
             };

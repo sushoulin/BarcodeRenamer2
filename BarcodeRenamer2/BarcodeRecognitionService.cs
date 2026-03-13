@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using ZXing;
 using ZXing.Windows.Compatibility;
@@ -568,7 +569,7 @@ namespace BarcodeRenamer2
             
             // 1. 检查黑白像素比例（条形码应该大致平衡，30%-70%黑色）
             double blackRatio = (double)blackCount / (blackCount + whiteCount);
-            if (blackRatio < 0.15 || blackRatio > 0.85)
+            if (blackRatio < 0.20 || blackRatio > 0.80)
             {
                 System.Diagnostics.Debug.WriteLine($"黑白像素比例不符合条形码特征: 黑色占比 {blackRatio:P1}");
                 return false;
@@ -578,7 +579,7 @@ namespace BarcodeRenamer2
             // 条形码每一行都应该有密集的黑白交替
             int validRows = 0;
             int totalRows = regionHeight;
-            int minTransitions = 15; // 条形码至少有15次黑白交替（30条线）
+            int minTransitions = 20; // 提高到20次黑白交替（更严格）
             
             for (int y = 0; y < regionHeight; y++)
             {
@@ -598,9 +599,9 @@ namespace BarcodeRenamer2
                 }
             }
             
-            // 至少80%的行应该有足够的条纹交替
+            // 至少90%的行应该有足够的条纹交替（更严格）
             double validRowRatio = (double)validRows / totalRows;
-            if (validRowRatio < 0.8)
+            if (validRowRatio < 0.9)
             {
                 System.Diagnostics.Debug.WriteLine($"条纹行比例不足: {validRows}/{totalRows} ({validRowRatio:P1})");
                 return false;
@@ -624,21 +625,150 @@ namespace BarcodeRenamer2
                     }
                     
                     double similarity = (double)samePositions / regionWidth;
-                    if (similarity > 0.7) // 70%相似度
+                    if (similarity > 0.85) // 提高到85%相似度
                     {
                         consistentPairs++;
                     }
                 }
                 
                 double consistency = (double)consistentPairs / totalPairs;
-                if (consistency < 0.7)
+                if (consistency < 0.9) // 提高到90%
                 {
                     System.Diagnostics.Debug.WriteLine($"条纹一致性不足: {consistency:P1}");
                     return false;
                 }
             }
             
+            // 4. 新增：检测条纹宽度的合理性
+            // 真实条形码的条纹宽度应该相对均匀（不会出现过宽或过窄的条纹）
+            if (!CheckStripeWidthValidity(binaryPixels, regionHeight, regionWidth))
+            {
+                System.Diagnostics.Debug.WriteLine("条纹宽度不合理");
+                return false;
+            }
+            
+            // 5. 新增：检测边缘强度（条形码边缘应该清晰锐利）
+            if (!CheckEdgeSharpness(binaryPixels, regionHeight, regionWidth))
+            {
+                System.Diagnostics.Debug.WriteLine("边缘强度不足");
+                return false;
+            }
+            
             System.Diagnostics.Debug.WriteLine($"条形码特征验证通过: 黑色占比 {blackRatio:P1}, 有效行 {validRows}/{totalRows}");
+            return true;
+        }
+        
+        /// <summary>
+        /// 检查条纹宽度的合理性
+        /// 真实条形码的条纹宽度应该相对均匀，不会有过宽或过窄的极端情况
+        /// </summary>
+        private bool CheckStripeWidthValidity(int[,] binaryPixels, int height, int width)
+        {
+            // 采样中间几行检测条纹宽度
+            int sampleRow = height / 2;
+            if (sampleRow >= height) sampleRow = 0;
+            
+            var stripeWidths = new List<int>();
+            int currentWidth = 1;
+            int currentValue = binaryPixels[sampleRow, 0];
+            
+            for (int x = 1; x < width; x++)
+            {
+                if (binaryPixels[sampleRow, x] == currentValue)
+                {
+                    currentWidth++;
+                }
+                else
+                {
+                    stripeWidths.Add(currentWidth);
+                    currentWidth = 1;
+                    currentValue = binaryPixels[sampleRow, x];
+                }
+            }
+            stripeWidths.Add(currentWidth);
+            
+            if (stripeWidths.Count < 20) // 条形码至少有20条条纹
+            {
+                return false;
+            }
+            
+            // 计算条纹宽度的统计信息
+            double avgWidth = stripeWidths.Average();
+            double maxDeviation = stripeWidths.Max(w => Math.Abs(w - avgWidth));
+            
+            // 最大偏差不应超过平均宽度的3倍
+            if (avgWidth > 0 && maxDeviation > avgWidth * 3)
+            {
+                return false;
+            }
+            
+            // 检查是否有异常宽的条纹（可能是背景纹理）
+            int maxAllowedWidth = Math.Max(5, (int)(avgWidth * 2.5));
+            int tooWideStripes = stripeWidths.Count(w => w > maxAllowedWidth);
+            
+            // 异常宽条纹不应超过5%
+            if ((double)tooWideStripes / stripeWidths.Count > 0.05)
+            {
+                return false;
+            }
+            
+            return true;
+        }
+        
+        /// <summary>
+        /// 检查边缘锐利度
+        /// 条形码的边缘应该是锐利的（黑白转换应该是瞬间完成，而不是渐变）
+        /// </summary>
+        private bool CheckEdgeSharpness(int[,] binaryPixels, int height, int width)
+        {
+            // 检测连续行之间的边缘对齐度
+            if (height < 3) return true;
+            
+            int edgeAlignedCount = 0;
+            int totalEdges = 0;
+            
+            // 采样检测
+            for (int x = 1; x < width; x++)
+            {
+                // 检测是否是边缘（有黑白转换）
+                bool isEdge = false;
+                for (int y = 0; y < height; y++)
+                {
+                    if (binaryPixels[y, x] != binaryPixels[y, x - 1])
+                    {
+                        isEdge = true;
+                        break;
+                    }
+                }
+                
+                if (isEdge)
+                {
+                    totalEdges++;
+                    
+                    // 检查这个边缘在所有行上是否对齐
+                    int edgeOnRow = 0;
+                    for (int y = 0; y < height; y++)
+                    {
+                        if (binaryPixels[y, x] != binaryPixels[y, x - 1])
+                        {
+                            edgeOnRow++;
+                        }
+                    }
+                    
+                    // 如果80%以上的行在这个位置有边缘，说明边缘对齐良好
+                    if ((double)edgeOnRow / height > 0.8)
+                    {
+                        edgeAlignedCount++;
+                    }
+                }
+            }
+            
+            // 至少70%的边缘应该对齐良好
+            if (totalEdges > 0 && (double)edgeAlignedCount / totalEdges < 0.7)
+            {
+                return false;
+            }
+            
             return true;
         }
         
