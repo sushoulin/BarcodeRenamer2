@@ -25,6 +25,11 @@ namespace BarcodeRenamer2
         public int ScanInterval { get; set; } = 2000;
 
         /// <summary>
+        /// 识别线程数
+        /// </summary>
+        public int RecognitionThreads { get; set; } = 2;
+
+        /// <summary>
         /// 是否自动扫描
         /// </summary>
         public bool AutoScan { get; set; } = false;

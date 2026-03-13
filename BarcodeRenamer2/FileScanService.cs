@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace BarcodeRenamer2
@@ -13,9 +14,12 @@ namespace BarcodeRenamer2
         private readonly AppConfig config;
         private readonly BarcodeRecognitionService recognitionService;
         private readonly HashSet<string> processedFiles;
-        private readonly Queue<FileItem> pendingRecognitionQueue;
+        private readonly List<FileItem> pendingRecognitionQueue;
+        private readonly object queueLock = new object();
+        private readonly SemaphoreSlim recognitionSemaphore;
         private bool isRecognizing = false;
         private bool stopRequested = false;
+        private CancellationTokenSource? recognitionCts;
 
         public event EventHandler<FileItem>? FileProcessed;
         public event EventHandler<FileItem>? FileRecognized;
@@ -26,10 +30,21 @@ namespace BarcodeRenamer2
             this.config = config;
             this.recognitionService = new BarcodeRecognitionService();
             this.processedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            this.pendingRecognitionQueue = new Queue<FileItem>();
+            this.pendingRecognitionQueue = new List<FileItem>();
+            this.recognitionSemaphore = new SemaphoreSlim(config.RecognitionThreads, config.RecognitionThreads);
             
             // 设置裁剪图片输出文件夹
             UpdateCropOutputFolder();
+        }
+
+        /// <summary>
+        /// 更新识别线程数
+        /// </summary>
+        public void UpdateRecognitionThreads(int threads)
+        {
+            if (threads < 1) threads = 1;
+            if (threads > 10) threads = 10;
+            config.RecognitionThreads = threads;
         }
 
         /// <summary>
@@ -108,7 +123,10 @@ namespace BarcodeRenamer2
                             FileProcessed?.Invoke(this, fileItem);
 
                             // 添加到待识别队列
-                            pendingRecognitionQueue.Enqueue(fileItem);
+                            lock (queueLock)
+                            {
+                                pendingRecognitionQueue.Add(fileItem);
+                            }
                         }
                         catch (Exception ex)
                         {
@@ -125,13 +143,31 @@ namespace BarcodeRenamer2
             StatisticsUpdated?.Invoke(this, stats);
 
             // 启动异步识别（如果队列有待识别文件且当前未在识别）
-            if (pendingRecognitionQueue.Count > 0)
+            StartRecognitionIfNeeded();
+        }
+
+        /// <summary>
+        /// 启动待识别文件的识别（用于开始自动扫描时处理已存在的待识别文件）
+        /// </summary>
+        public void StartPendingRecognition()
+        {
+            StartRecognitionIfNeeded();
+        }
+
+        /// <summary>
+        /// 如果需要则启动识别
+        /// </summary>
+        private void StartRecognitionIfNeeded()
+        {
+            int queueCount;
+            lock (queueLock)
             {
-                if (!isRecognizing)
-                {
-                    _ = StartAsyncRecognition();
-                }
-                // 如果已经在识别中，新添加的文件会在队列中等待
+                queueCount = pendingRecognitionQueue.Count;
+            }
+
+            if (queueCount > 0 && !isRecognizing)
+            {
+                _ = StartAsyncRecognition();
             }
         }
 
@@ -158,11 +194,24 @@ namespace BarcodeRenamer2
         public void StopRecognition()
         {
             stopRequested = true;
-            pendingRecognitionQueue.Clear();
+            recognitionCts?.Cancel();
+            lock (queueLock)
+            {
+                pendingRecognitionQueue.Clear();
+            }
+        }
+
+        /// <summary>
+        /// 清空所有文件列表
+        /// </summary>
+        public void ClearAllFiles()
+        {
+            StopRecognition();
+            processedFiles.Clear();
         }
         
         /// <summary>
-        /// 启动异步识别
+        /// 启动异步识别（多线程）
         /// </summary>
         private async Task StartAsyncRecognition()
         {
@@ -174,40 +223,101 @@ namespace BarcodeRenamer2
             
             isRecognizing = true;
             stopRequested = false;
+            recognitionCts = new CancellationTokenSource();
 
-            while (pendingRecognitionQueue.Count > 0 && !stopRequested)
+            var tasks = new List<Task>();
+
+            while (true)
             {
-                var fileItem = pendingRecognitionQueue.Dequeue();
+                if (stopRequested || recognitionCts.Token.IsCancellationRequested)
+                {
+                    break;
+                }
 
-                try
+                FileItem? fileItem = null;
+                lock (queueLock)
                 {
-                    // 异步识别
-                    await Task.Run(() => RecognizeFile(fileItem));
+                    if (pendingRecognitionQueue.Count > 0)
+                    {
+                        fileItem = pendingRecognitionQueue[0];
+                        pendingRecognitionQueue.RemoveAt(0);
+                    }
                 }
-                catch (Exception ex)
+
+                if (fileItem == null)
                 {
-                    System.Diagnostics.Debug.WriteLine($"识别文件失败 {fileItem.FilePath}: {ex.Message}");
+                    // 队列为空，等待一小段时间检查是否有新文件
+                    await Task.Delay(100);
+                    
+                    lock (queueLock)
+                    {
+                        if (pendingRecognitionQueue.Count == 0)
+                        {
+                            break;
+                        }
+                    }
+                    continue;
                 }
+
+                // 等待获取信号量（控制并发数）
+                await recognitionSemaphore.WaitAsync();
+                
+                if (stopRequested || recognitionCts.Token.IsCancellationRequested)
+                {
+                    // 把文件放回队列
+                    lock (queueLock)
+                    {
+                        pendingRecognitionQueue.Insert(0, fileItem);
+                    }
+                    recognitionSemaphore.Release();
+                    break;
+                }
+
+                // 启动识别任务
+                var task = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await RecognizeFileAsync(fileItem, recognitionCts.Token);
+                    }
+                    finally
+                    {
+                        recognitionSemaphore.Release();
+                    }
+                }, recognitionCts.Token);
+                
+                tasks.Add(task);
             }
 
+            // 等待所有正在进行的识别任务完成
+            await Task.WhenAll(tasks);
+
             isRecognizing = false;
+            recognitionCts?.Dispose();
+            recognitionCts = null;
             
             // 识别完成后，检查是否有新的待识别文件
-            if (pendingRecognitionQueue.Count > 0 && !stopRequested)
+            if (!stopRequested)
             {
-                _ = StartAsyncRecognition();
+                lock (queueLock)
+                {
+                    if (pendingRecognitionQueue.Count > 0)
+                    {
+                        _ = StartAsyncRecognition();
+                    }
+                }
             }
         }
 
         /// <summary>
-        /// 识别单个文件
+        /// 异步识别单个文件
         /// </summary>
-        private void RecognizeFile(FileItem fileItem)
+        private async Task RecognizeFileAsync(FileItem fileItem, CancellationToken cancellationToken)
         {
             try
             {
                 // 检查是否请求停止
-                if (stopRequested)
+                if (stopRequested || cancellationToken.IsCancellationRequested)
                 {
                     fileItem.Status = RecognitionStatus.Pending;
                     FileRecognized?.Invoke(this, fileItem);
@@ -226,8 +336,8 @@ namespace BarcodeRenamer2
                     return;
                 }
 
-                // 识别条形码
-                var result = recognitionService.Recognize(fileItem.FilePath);
+                // 异步识别条形码
+                var result = await Task.Run(() => recognitionService.Recognize(fileItem.FilePath), cancellationToken);
                 fileItem.RecognitionTime = DateTime.Now;
 
                 if (result.Success && !string.IsNullOrEmpty(result.Content))
@@ -240,17 +350,13 @@ namespace BarcodeRenamer2
                 }
                 else
                 {
-                    // 区分"无条形码"和"识别失败"
-                    // 如果错误信息明确表示无条形码，则设为NoBarcode状态
-                    if (result.ErrorMessage != null && result.ErrorMessage.Contains("无条形码"))
-                    {
-                        fileItem.Status = RecognitionStatus.NoBarcode;
-                    }
-                    else
-                    {
-                        fileItem.Status = RecognitionStatus.Failed;
-                    }
+                    // 所有识别失败的情况都归类为 Failed
+                    fileItem.Status = RecognitionStatus.Failed;
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                fileItem.Status = RecognitionStatus.Pending;
             }
             catch (Exception ex)
             {

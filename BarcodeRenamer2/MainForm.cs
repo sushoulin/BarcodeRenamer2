@@ -24,12 +24,14 @@ namespace BarcodeRenamer2
         private Button btnBrowseScan;
         private Button btnBrowseOutput;
         private NumericUpDown numInterval;
+        private NumericUpDown numThreads;
 
         private GroupBox grpControl;
         private Button btnStartScan;
         private Button btnStopScan;
         private Button btnScanOnce;
         private Button btnRefresh;
+        private Button btnClearList;
 
         private GroupBox grpStatistics;
         private Label lblTotalCount;
@@ -42,18 +44,17 @@ namespace BarcodeRenamer2
         private TabPage tabAll;
         private TabPage tabSuccess;
         private TabPage tabFailed;
-        private TabPage tabNoBarcode;
+        private TabPage tabManualReview;
         private TabPage tabSearchResult;
         private ListView lstFiles;
         private ListView lstSuccessFiles;
         private ListView lstFailedFiles;
-        private ListView lstNoBarcodeFiles;
+        private ListView lstManualReviewFiles;
         private ListView lstSearchFiles;
         private Button btnManualReview;
         private TextBox txtSearch;
         private Button btnSearch;
         private Button btnClearSearch;
-        private Label lblNoBarcodeCount;
         
         // 文件列表数据源
         private List<FileItem> allFiles = new List<FileItem>();
@@ -158,16 +159,32 @@ namespace BarcodeRenamer2
             numInterval = new NumericUpDown
             {
                 Location = new Point(95, 83),
-                Size = new Size(100, 25),
+                Size = new Size(80, 25),
                 Minimum = 1,
                 Maximum = 60,
                 Value = config.ScanInterval / 1000
             };
 
+            Label lblThreads = new Label
+            {
+                Text = "识别线程数:",
+                Location = new Point(185, 85),
+                Size = new Size(80, 20)
+            };
+
+            numThreads = new NumericUpDown
+            {
+                Location = new Point(270, 83),
+                Size = new Size(80, 25),
+                Minimum = 1,
+                Maximum = 10,
+                Value = config.RecognitionThreads
+            };
+
             grpConfig.Controls.AddRange(new Control[] {
                 lblScanFolder, txtScanFolder, btnBrowseScan,
                 lblOutputFolder, txtOutputFolder, btnBrowseOutput,
-                lblInterval, numInterval
+                lblInterval, numInterval, lblThreads, numThreads
             });
 
             // 控制区域
@@ -183,7 +200,7 @@ namespace BarcodeRenamer2
             {
                 Text = "开始自动扫描",
                 Location = new Point(10, 25),
-                Size = new Size(140, 35),
+                Size = new Size(120, 35),
                 BackColor = Color.FromArgb(40, 167, 69),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat
@@ -192,8 +209,8 @@ namespace BarcodeRenamer2
             btnStopScan = new Button
             {
                 Text = "停止扫描",
-                Location = new Point(160, 25),
-                Size = new Size(140, 35),
+                Location = new Point(135, 25),
+                Size = new Size(120, 35),
                 BackColor = Color.FromArgb(220, 53, 69),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat,
@@ -203,8 +220,8 @@ namespace BarcodeRenamer2
             btnScanOnce = new Button
             {
                 Text = "单次扫描",
-                Location = new Point(310, 25),
-                Size = new Size(140, 35),
+                Location = new Point(260, 25),
+                Size = new Size(120, 35),
                 BackColor = Color.FromArgb(0, 123, 255),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat
@@ -213,15 +230,25 @@ namespace BarcodeRenamer2
             btnRefresh = new Button
             {
                 Text = "刷新列表",
-                Location = new Point(310, 70),
-                Size = new Size(140, 35),
+                Location = new Point(385, 25),
+                Size = new Size(120, 35),
                 BackColor = Color.FromArgb(108, 117, 125),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat
             };
 
+            btnClearList = new Button
+            {
+                Text = "清空列表",
+                Location = new Point(385, 70),
+                Size = new Size(120, 35),
+                BackColor = Color.FromArgb(255, 193, 7),
+                ForeColor = Color.Black,
+                FlatStyle = FlatStyle.Flat
+            };
+
             grpControl.Controls.AddRange(new Control[] {
-                btnStartScan, btnStopScan, btnScanOnce, btnRefresh
+                btnStartScan, btnStopScan, btnScanOnce, btnRefresh, btnClearList
             });
 
             // 统计区域
@@ -291,33 +318,33 @@ namespace BarcodeRenamer2
             tabAll = new TabPage("全部 (0)");
             tabSuccess = new TabPage("成功 (0)");
             tabFailed = new TabPage("失败 (0)");
-            tabNoBarcode = new TabPage("无条形码 (0)");
+            tabManualReview = new TabPage("人工审核 (0)");
             tabSearchResult = new TabPage("搜索结果 (0)");
 
             // 创建五个ListView
             lstFiles = CreateListView();
             lstSuccessFiles = CreateListView();
             lstFailedFiles = CreateListView();
-            lstNoBarcodeFiles = CreateListView();
+            lstManualReviewFiles = CreateListView();
             lstSearchFiles = CreateListView();
 
             tabAll.Controls.Add(lstFiles);
             tabSuccess.Controls.Add(lstSuccessFiles);
             tabFailed.Controls.Add(lstFailedFiles);
-            tabNoBarcode.Controls.Add(lstNoBarcodeFiles);
+            tabManualReview.Controls.Add(lstManualReviewFiles);
             tabSearchResult.Controls.Add(lstSearchFiles);
 
             tabFileFilter.TabPages.Add(tabAll);
             tabFileFilter.TabPages.Add(tabSuccess);
             tabFileFilter.TabPages.Add(tabFailed);
-            tabFileFilter.TabPages.Add(tabNoBarcode);
+            tabFileFilter.TabPages.Add(tabManualReview);
             tabFileFilter.TabPages.Add(tabSearchResult);
 
             // 双击预览事件
             lstFiles.DoubleClick += LstFiles_DoubleClick;
             lstSuccessFiles.DoubleClick += LstFiles_DoubleClick;
             lstFailedFiles.DoubleClick += LstFiles_DoubleClick;
-            lstNoBarcodeFiles.DoubleClick += LstFiles_DoubleClick;
+            lstManualReviewFiles.DoubleClick += LstFiles_DoubleClick;
             lstSearchFiles.DoubleClick += LstFiles_DoubleClick;
 
             // 搜索框
@@ -446,6 +473,8 @@ namespace BarcodeRenamer2
                 return lstSuccessFiles;
             else if (tabFileFilter.SelectedTab == tabFailed)
                 return lstFailedFiles;
+            else if (tabFileFilter.SelectedTab == tabManualReview)
+                return lstManualReviewFiles;
             return lstFiles;
         }
 
@@ -454,6 +483,7 @@ namespace BarcodeRenamer2
             txtScanFolder.Text = config.ScanFolder;
             txtOutputFolder.Text = config.OutputFolder;
             numInterval.Value = config.ScanInterval / 1000;
+            numThreads.Value = config.RecognitionThreads;
         }
 
         private void SetupEventHandlers()
@@ -482,6 +512,7 @@ namespace BarcodeRenamer2
                         txtOutputFolder.Text = dialog.SelectedPath;
                         config.OutputFolder = dialog.SelectedPath;
                         config.Save();
+                        scanService.UpdateCropOutputFolder();
                     }
                 }
             };
@@ -494,6 +525,13 @@ namespace BarcodeRenamer2
                 {
                     scanTimer.Interval = config.ScanInterval;
                 }
+            };
+
+            numThreads.ValueChanged += (s, e) =>
+            {
+                config.RecognitionThreads = (int)numThreads.Value;
+                config.Save();
+                scanService.UpdateRecognitionThreads(config.RecognitionThreads);
             };
 
             btnStartScan.Click += (s, e) =>
@@ -514,6 +552,11 @@ namespace BarcodeRenamer2
             btnRefresh.Click += (s, e) =>
             {
                 RefreshFileList();
+            };
+
+            btnClearList.Click += (s, e) =>
+            {
+                ClearAllFiles();
             };
 
             // 搜索功能
@@ -653,6 +696,12 @@ namespace BarcodeRenamer2
             btnScanOnce.Enabled = false;
 
             lblStatus.Text = "自动扫描中...";
+
+            // 执行一次扫描
+            PerformScan();
+
+            // 启动待识别文件的识别（处理之前已存在但未识别的文件）
+            scanService.StartPendingRecognition();
         }
 
         private void StopAutoScan()
@@ -675,6 +724,52 @@ namespace BarcodeRenamer2
             lblStatus.Text = $"正在扫描... {DateTime.Now:HH:mm:ss}";
             scanService.ScanFolder();
             lblStatus.Text = $"扫描完成 {DateTime.Now:HH:mm:ss}";
+        }
+
+        /// <summary>
+        /// 清空所有文件列表
+        /// </summary>
+        private void ClearAllFiles()
+        {
+            var result = MessageBox.Show(
+                "确定要清空文件列表吗？\n\n这将清除所有已扫描的文件记录，释放内存。\n已处理的文件不会被删除。",
+                "确认清空",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question,
+                MessageBoxDefaultButton.Button2);
+
+            if (result == DialogResult.Yes)
+            {
+                // 停止扫描和识别
+                if (scanTimer.Enabled)
+                {
+                    scanTimer.Stop();
+                }
+                scanService.StopRecognition();
+
+                // 清空服务层的数据
+                scanService.ClearAllFiles();
+
+                // 清空所有列表
+                lstFiles.Items.Clear();
+                lstSuccessFiles.Items.Clear();
+                lstFailedFiles.Items.Clear();
+                lstManualReviewFiles.Items.Clear();
+                lstSearchFiles.Items.Clear();
+                allFiles.Clear();
+
+                // 重置统计
+                totalStats = new ScanStatistics();
+                UpdateStatistics();
+                UpdateTabTitles();
+
+                lblStatus.Text = "列表已清空";
+
+                // 恢复按钮状态
+                btnStartScan.Enabled = true;
+                btnStopScan.Enabled = false;
+                btnScanOnce.Enabled = true;
+            }
         }
 
         /// <summary>
@@ -708,10 +803,6 @@ namespace BarcodeRenamer2
             {
                 item.BackColor = Color.LightYellow;
             }
-            else if (fileItem.Status == RecognitionStatus.NoBarcode)
-            {
-                item.BackColor = Color.LightGray;
-            }
             else if (fileItem.Status == RecognitionStatus.Recognizing)
             {
                 item.BackColor = Color.LightBlue;
@@ -730,7 +821,7 @@ namespace BarcodeRenamer2
             lstFiles.Items.Insert(0, item);
 
             // 根据状态添加到对应列表
-            if (fileItem.Status == RecognitionStatus.Success || fileItem.Status == RecognitionStatus.Manual)
+            if (fileItem.Status == RecognitionStatus.Success)
             {
                 var successItem = CreateListViewItem(fileItem);
                 lstSuccessFiles.Items.Insert(0, successItem);
@@ -740,10 +831,10 @@ namespace BarcodeRenamer2
                 var failedItem = CreateListViewItem(fileItem);
                 lstFailedFiles.Items.Insert(0, failedItem);
             }
-            else if (fileItem.Status == RecognitionStatus.NoBarcode)
+            else if (fileItem.Status == RecognitionStatus.Manual)
             {
-                var noBarcodeItem = CreateListViewItem(fileItem);
-                lstNoBarcodeFiles.Items.Insert(0, noBarcodeItem);
+                var manualItem = CreateListViewItem(fileItem);
+                lstManualReviewFiles.Items.Insert(0, manualItem);
             }
 
             // 保存到数据源
@@ -782,10 +873,6 @@ namespace BarcodeRenamer2
             {
                 item.BackColor = Color.LightPink;
             }
-            else if (fileItem.Status == RecognitionStatus.NoBarcode)
-            {
-                item.BackColor = Color.LightGray;
-            }
             else if (fileItem.Status == RecognitionStatus.Recognizing)
             {
                 item.BackColor = Color.LightBlue;
@@ -804,7 +891,7 @@ namespace BarcodeRenamer2
             tabAll.Text = $"全部 ({lstFiles.Items.Count})";
             tabSuccess.Text = $"成功 ({lstSuccessFiles.Items.Count})";
             tabFailed.Text = $"失败 ({lstFailedFiles.Items.Count})";
-            tabNoBarcode.Text = $"无条形码 ({lstNoBarcodeFiles.Items.Count})";
+            tabManualReview.Text = $"人工审核 ({lstManualReviewFiles.Items.Count})";
         }
 
         /// <summary>
@@ -860,13 +947,13 @@ namespace BarcodeRenamer2
             lstFiles.BeginUpdate();
             lstSuccessFiles.BeginUpdate();
             lstFailedFiles.BeginUpdate();
-            lstNoBarcodeFiles.BeginUpdate();
+            lstManualReviewFiles.BeginUpdate();
             try
             {
                 // 在全部列表中查找并更新
                 bool foundInSuccess = false;
                 bool foundInFailed = false;
-                bool foundInNoBarcode = false;
+                bool foundInManual = false;
 
                 foreach (ListViewItem item in lstFiles.Items)
                 {
@@ -895,21 +982,18 @@ namespace BarcodeRenamer2
                         if (itemPath == targetPath)
                         {
                             foundInSuccess = true;
-                            // 如果状态变成失败或无条形码，需要从成功列表移除
-                            if (fileItem.Status == RecognitionStatus.Failed || fileItem.Status == RecognitionStatus.NoBarcode)
+                            // 如果状态变成失败或人工，需要从成功列表移除
+                            if (fileItem.Status == RecognitionStatus.Failed)
                             {
                                 lstSuccessFiles.Items.Remove(item);
-                                // 添加到对应列表
-                                if (fileItem.Status == RecognitionStatus.NoBarcode)
-                                {
-                                    var noBarcodeItem = CreateListViewItem(fileItem);
-                                    lstNoBarcodeFiles.Items.Insert(0, noBarcodeItem);
-                                }
-                                else
-                                {
-                                    var failedItem = CreateListViewItem(fileItem);
-                                    lstFailedFiles.Items.Insert(0, failedItem);
-                                }
+                                var failedItem = CreateListViewItem(fileItem);
+                                lstFailedFiles.Items.Insert(0, failedItem);
+                            }
+                            else if (fileItem.Status == RecognitionStatus.Manual)
+                            {
+                                lstSuccessFiles.Items.Remove(item);
+                                var manualItem = CreateListViewItem(fileItem);
+                                lstManualReviewFiles.Items.Insert(0, manualItem);
                             }
                             else
                             {
@@ -932,18 +1016,18 @@ namespace BarcodeRenamer2
                         if (itemPath == targetPath)
                         {
                             foundInFailed = true;
-                            // 如果状态变成成功或无条形码，需要从失败列表移除
-                            if (fileItem.Status == RecognitionStatus.Success || fileItem.Status == RecognitionStatus.Manual)
+                            // 如果状态变成成功或人工，需要从失败列表移除
+                            if (fileItem.Status == RecognitionStatus.Success)
                             {
                                 lstFailedFiles.Items.Remove(item);
                                 var successItem = CreateListViewItem(fileItem);
                                 lstSuccessFiles.Items.Insert(0, successItem);
                             }
-                            else if (fileItem.Status == RecognitionStatus.NoBarcode)
+                            else if (fileItem.Status == RecognitionStatus.Manual)
                             {
                                 lstFailedFiles.Items.Remove(item);
-                                var noBarcodeItem = CreateListViewItem(fileItem);
-                                lstNoBarcodeFiles.Items.Insert(0, noBarcodeItem);
+                                var manualItem = CreateListViewItem(fileItem);
+                                lstManualReviewFiles.Items.Insert(0, manualItem);
                             }
                             else
                             {
@@ -955,8 +1039,8 @@ namespace BarcodeRenamer2
                     }
                 }
 
-                // 在无条形码列表中查找
-                foreach (ListViewItem item in lstNoBarcodeFiles.Items)
+                // 在人工审核列表中查找
+                foreach (ListViewItem item in lstManualReviewFiles.Items)
                 {
                     if (item.Tag is FileItem itemFile)
                     {
@@ -965,17 +1049,17 @@ namespace BarcodeRenamer2
                         
                         if (itemPath == targetPath)
                         {
-                            foundInNoBarcode = true;
-                            // 如果状态变成成功或失败，需要从无条形码列表移除
-                            if (fileItem.Status == RecognitionStatus.Success || fileItem.Status == RecognitionStatus.Manual)
+                            foundInManual = true;
+                            // 如果状态变成成功或失败，需要从人工列表移除
+                            if (fileItem.Status == RecognitionStatus.Success)
                             {
-                                lstNoBarcodeFiles.Items.Remove(item);
+                                lstManualReviewFiles.Items.Remove(item);
                                 var successItem = CreateListViewItem(fileItem);
                                 lstSuccessFiles.Items.Insert(0, successItem);
                             }
                             else if (fileItem.Status == RecognitionStatus.Failed)
                             {
-                                lstNoBarcodeFiles.Items.Remove(item);
+                                lstManualReviewFiles.Items.Remove(item);
                                 var failedItem = CreateListViewItem(fileItem);
                                 lstFailedFiles.Items.Insert(0, failedItem);
                             }
@@ -990,9 +1074,9 @@ namespace BarcodeRenamer2
                 }
 
                 // 如果之前不在任何列表，现在需要添加
-                if (!foundInSuccess && !foundInFailed && !foundInNoBarcode)
+                if (!foundInSuccess && !foundInFailed && !foundInManual)
                 {
-                    if (fileItem.Status == RecognitionStatus.Success || fileItem.Status == RecognitionStatus.Manual)
+                    if (fileItem.Status == RecognitionStatus.Success)
                     {
                         var successItem = CreateListViewItem(fileItem);
                         lstSuccessFiles.Items.Insert(0, successItem);
@@ -1002,10 +1086,10 @@ namespace BarcodeRenamer2
                         var failedItem = CreateListViewItem(fileItem);
                         lstFailedFiles.Items.Insert(0, failedItem);
                     }
-                    else if (fileItem.Status == RecognitionStatus.NoBarcode)
+                    else if (fileItem.Status == RecognitionStatus.Manual)
                     {
-                        var noBarcodeItem = CreateListViewItem(fileItem);
-                        lstNoBarcodeFiles.Items.Insert(0, noBarcodeItem);
+                        var manualItem = CreateListViewItem(fileItem);
+                        lstManualReviewFiles.Items.Insert(0, manualItem);
                     }
                 }
 
@@ -1017,7 +1101,7 @@ namespace BarcodeRenamer2
                 lstFiles.EndUpdate();
                 lstSuccessFiles.EndUpdate();
                 lstFailedFiles.EndUpdate();
-                lstNoBarcodeFiles.EndUpdate();
+                lstManualReviewFiles.EndUpdate();
             }
         }
 
@@ -1068,6 +1152,7 @@ namespace BarcodeRenamer2
             lstFiles.BeginUpdate();
             lstSuccessFiles.BeginUpdate();
             lstFailedFiles.BeginUpdate();
+            lstManualReviewFiles.BeginUpdate();
 
             try
             {
@@ -1098,6 +1183,15 @@ namespace BarcodeRenamer2
                     }
                 }
 
+                // 更新人工审核列表
+                foreach (ListViewItem item in lstManualReviewFiles.Items)
+                {
+                    if (item.Tag is FileItem fileItem)
+                    {
+                        UpdateFileListItem(item, fileItem);
+                    }
+                }
+
                 // 更新选项卡标题
                 UpdateTabTitles();
             }
@@ -1107,6 +1201,7 @@ namespace BarcodeRenamer2
                 lstFiles.EndUpdate();
                 lstSuccessFiles.EndUpdate();
                 lstFailedFiles.EndUpdate();
+                lstManualReviewFiles.EndUpdate();
             }
         }
         
