@@ -62,6 +62,9 @@ namespace BarcodeRenamer2
             this.Size = new Size(1000, 700);
             this.MinimumSize = new Size(800, 600);
             this.StartPosition = FormStartPosition.CenterScreen;
+            
+            // 设置窗体图标（使用系统信息图标）
+            this.Icon = SystemIcons.Information;
 
             // 配置区域
             grpConfig = new GroupBox
@@ -705,10 +708,28 @@ namespace BarcodeRenamer2
             // 创建托盘图标
             notifyIcon = new NotifyIcon();
             notifyIcon.Text = "条形码识别工具";
-            notifyIcon.Visible = true;
             
-            // 使用默认应用程序图标
-            notifyIcon.Icon = SystemIcons.Application;
+            // 尝试加载图标（按优先级）
+            try
+            {
+                // 方案1：使用窗体图标（如果已设置）
+                if (this.Icon != null)
+                {
+                    notifyIcon.Icon = this.Icon;
+                }
+                // 方案2：使用系统信息图标（更明显的图标）
+                else
+                {
+                    notifyIcon.Icon = SystemIcons.Information;
+                }
+            }
+            catch
+            {
+                // 方案3：使用系统应用程序图标作为后备
+                notifyIcon.Icon = SystemIcons.Application;
+            }
+            
+            notifyIcon.Visible = true;
             
             // 创建右键菜单
             trayContextMenu = new ContextMenuStrip();
