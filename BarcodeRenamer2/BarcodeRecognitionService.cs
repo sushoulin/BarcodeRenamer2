@@ -47,7 +47,7 @@ namespace BarcodeRenamer2
         /// <summary>
         /// 识别图片中的条形码（多线程优化）
         /// </summary>
-        public RecognitionResult Recognize(string imagePath, string? outputFolder = null, string? barcodeContent = null)
+        public RecognitionResult Recognize(string imagePath)
         {
             try
             {
@@ -61,12 +61,6 @@ namespace BarcodeRenamer2
                         int cropWidth = (int)(noBlank.Width * 0.5); // 50%宽度
                         using (var cropped = CropTopRightRegion(noBlank, cropHeight, cropWidth))
                         {
-                            // 保存裁剪图片（在平滑处理之前）
-                            if (!string.IsNullOrEmpty(outputFolder))
-                            {
-                                SaveCroppedImage(cropped, imagePath, outputFolder, barcodeContent);
-                            }
-                            
                             // 调整DPI到400
                             using (var highDpi = SetHighDPI(cropped, 400))
                             {
@@ -96,54 +90,6 @@ namespace BarcodeRenamer2
                 Success = false,
                 ErrorMessage = "未能识别条形码"
             };
-        }
-        
-        /// <summary>
-        /// 保存裁剪图片到输出文件夹的"裁剪"子文件夹
-        /// </summary>
-        private void SaveCroppedImage(Bitmap cropped, string originalPath, string outputFolder, string? barcodeContent)
-        {
-            try
-            {
-                // 创建裁剪文件夹
-                string cropFolder = Path.Combine(outputFolder, "裁剪");
-                if (!Directory.Exists(cropFolder))
-                {
-                    Directory.CreateDirectory(cropFolder);
-                }
-                
-                // 生成文件名：优先使用识别的条形码，否则使用原文件名
-                string fileName;
-                if (!string.IsNullOrEmpty(barcodeContent))
-                {
-                    // 使用条形码作为文件名
-                    string ext = Path.GetExtension(originalPath);
-                    fileName = $"{barcodeContent}{ext}";
-                    
-                    // 如果文件已存在，添加序号
-                    int counter = 1;
-                    string filePath = Path.Combine(cropFolder, fileName);
-                    while (File.Exists(filePath))
-                    {
-                        fileName = $"{barcodeContent}_{counter}{ext}";
-                        filePath = Path.Combine(cropFolder, fileName);
-                        counter++;
-                    }
-                }
-                else
-                {
-                    // 使用原文件名
-                    fileName = Path.GetFileName(originalPath);
-                }
-                
-                // 保存裁剪图片
-                string savePath = Path.Combine(cropFolder, fileName);
-                cropped.Save(savePath, System.Drawing.Imaging.ImageFormat.Png);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"保存裁剪图片失败: {ex.Message}");
-            }
         }
 
         /// <summary>

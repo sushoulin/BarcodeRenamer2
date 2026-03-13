@@ -195,8 +195,8 @@ namespace BarcodeRenamer2
                     return;
                 }
 
-                // 识别条形码（传入输出文件夹以便保存裁剪图片）
-                var result = recognitionService.Recognize(fileItem.FilePath, config.OutputFolder, null);
+                // 识别条形码
+                var result = recognitionService.Recognize(fileItem.FilePath);
                 fileItem.RecognitionTime = DateTime.Now;
 
                 if (result.Success && !string.IsNullOrEmpty(result.Content))
