@@ -32,9 +32,6 @@ namespace BarcodeRenamer2
             this.processedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             this.pendingRecognitionQueue = new List<FileItem>();
             this.recognitionSemaphore = new SemaphoreSlim(config.RecognitionThreads, config.RecognitionThreads);
-            
-            // 设置裁剪图片输出文件夹
-            UpdateCropOutputFolder();
         }
 
         /// <summary>
@@ -47,17 +44,15 @@ namespace BarcodeRenamer2
             config.RecognitionThreads = threads;
         }
 
-        /// <summary>
-        /// 更新裁剪图片输出文件夹
-        /// </summary>
-        public void UpdateCropOutputFolder()
-        {
-            if (!string.IsNullOrEmpty(config.OutputFolder))
-            {
-                string cropFolder = Path.Combine(config.OutputFolder, "裁剪");
-                recognitionService.SetCropOutputFolder(cropFolder);
-            }
-        }
+        // 裁剪功能已移除
+        // public void UpdateCropOutputFolder()
+        // {
+        //     if (!string.IsNullOrEmpty(config.OutputFolder))
+        //     {
+        //         string cropFolder = Path.Combine(config.OutputFolder, "裁剪");
+        //         recognitionService.SetCropOutputFolder(cropFolder);
+        //     }
+        // }
 
         /// <summary>
         /// 清除已处理文件记录

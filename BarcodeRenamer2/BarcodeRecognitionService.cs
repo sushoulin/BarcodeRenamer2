@@ -20,7 +20,6 @@ namespace BarcodeRenamer2
     public class BarcodeRecognitionService
     {
         private readonly BarcodeReader reader;
-        private string cropOutputFolder;
         private WeChatQRCode weChatQRCode;
         private bool detectorInitialized;
 
@@ -98,14 +97,15 @@ namespace BarcodeRenamer2
             }
         }
 
-        public void SetCropOutputFolder(string folder)
-        {
-            cropOutputFolder = folder;
-            if (!string.IsNullOrEmpty(folder) && !Directory.Exists(folder))
-            {
-                Directory.CreateDirectory(folder);
-            }
-        }
+        // 裁剪功能已移除
+        // public void SetCropOutputFolder(string folder)
+        // {
+        //     cropOutputFolder = folder;
+        //     if (!string.IsNullOrEmpty(folder) && !Directory.Exists(folder))
+        //     {
+        //         Directory.CreateDirectory(folder);
+        //     }
+        // }
 
         /// <summary>
         /// 识别图片中的条形码

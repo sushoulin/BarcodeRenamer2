@@ -555,7 +555,6 @@ namespace BarcodeRenamer2
                         txtOutputFolder.Text = dialog.SelectedPath;
                         config.OutputFolder = dialog.SelectedPath;
                         config.Save();
-                        scanService.UpdateCropOutputFolder();
                     }
                 }
             };
