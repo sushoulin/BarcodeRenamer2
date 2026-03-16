@@ -85,6 +85,7 @@ namespace BarcodeRenamer2
 
         /// <summary>
         /// 扫描文件夹中的图片文件（快速扫描，只获取文件列表）
+        /// 支持递归扫描子文件夹
         /// </summary>
         public void ScanFolder()
         {
@@ -99,7 +100,8 @@ namespace BarcodeRenamer2
             {
                 try
                 {
-                    var files = Directory.GetFiles(config.ScanFolder, format);
+                    // 使用 SearchOption.AllDirectories 递归扫描子文件夹
+                    var files = Directory.GetFiles(config.ScanFolder, format, SearchOption.AllDirectories);
                     foreach (var filePath in files)
                     {
                         try
